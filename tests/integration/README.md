@@ -47,3 +47,15 @@ request (`set role authenticated; select set_config('request.jwt.claims',
 All test data is created and torn down inside a single transaction that is
 rolled back at the end, so the test never leaves residue in the target
 database.
+
+## Milestone 2 (`milestone2-rls.test.ts`)
+
+Same skip/run conditions as above, extended to Milestone 2's tables
+(`teams`, `team_users`, `audit_logs`). Verifies the audit requirements from
+`docs/implementation-plan.md` Milestone 2 directly against real RLS policies:
+an agent cannot read another agent's `team_users` row; a `team_manager`
+cannot administer (insert/update) any team, including one they manage
+(only `org_admin` can — docs/decisions.md ADR-007); an `org_admin` cannot
+read another organization's teams; an agent cannot change their own role;
+and `audit_logs` rows are insertable only as the real actor and readable
+only by `org_admin`.
