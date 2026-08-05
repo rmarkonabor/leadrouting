@@ -229,3 +229,39 @@ variables must be validated during application startup."
 env modules under `NEXT_RUNTIME === "nodejs"`, forcing validation to run
 once when the server process starts rather than lazily on first use.
 **Status**: adopted.
+
+## ADR-016: Security-advisor fixes applied as a follow-up migration after linking the development project
+
+**Context**: applying `20260805160000_foundation_organizations_and_membership.sql`
+to the connected development Supabase project (ref `qejvrdfrcdatdjxwlane`)
+and running `get_advisors` surfaced three real findings the local review
+missed: (1) `set_updated_at()` had no pinned `search_path`
+(`function_search_path_mutable`); (2) Supabase's default-privilege template
+grants `EXECUTE` on newly created functions directly to `anon` and
+`authenticated` at `CREATE FUNCTION` time — the original migration's
+`revoke all on function bootstrap_organization(...) from public` only
+revoked the `PUBLIC` pseudo-role's grant, not those separate direct grants,
+so `bootstrap_organization()` remained callable by the unauthenticated
+`anon` role via PostgREST RPC even though the function's own `auth.uid()
+is null` check would still reject it; (3) the trigger-only functions
+`set_updated_at()` and `handle_new_auth_user()` were reachable as public
+RPC endpoints for no reason, since no client should ever call them
+directly.
+**Decision**: rather than editing the already-applied migration (forbidden
+by `docs/database-schema.md` §22 / CLAUDE.md rule 9), added
+`20260805170000_foundation_security_advisor_fixes.sql`: pins
+`set_updated_at()`'s `search_path`, revokes all `anon`/`authenticated`
+grants on both trigger-only functions (trigger firing does not require the
+firing session to hold `EXECUTE` on the trigger function, so this doesn't
+break `on_auth_user_created`/the `updated_at` triggers), and revokes
+`anon`'s grant on `bootstrap_organization()` while keeping `authenticated`.
+Verified via `information_schema.routine_privileges` and a re-run of
+`get_advisors` that only two expected/intentional findings remain:
+`bootstrap_organization` still shows as `authenticated`-executable (by
+design — that's how legitimate callers reach it) and `rls_auto_enable()`
+is a pre-existing Supabase-platform-managed function this project didn't
+create, out of scope to modify.
+**Status**: adopted. Takeaway for future milestones: always run
+`get_advisors` after applying a migration to a real project, not just
+after a local/offline review — default-privilege grants made at function
+creation time are easy to miss by reading the SQL alone.
