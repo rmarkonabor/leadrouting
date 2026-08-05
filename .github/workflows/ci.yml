@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Milestone 1 minimal gate: format/lint/typecheck/test/build on every PR, per
+# CLAUDE.md rule 15. The full CI plan (Playwright, RLS integration against a
+# spun-up local Supabase stack, dependency vulnerability scan) is Milestone 9
+# scope per docs/implementation-plan.md and docs/testing-strategy.md §4 — this
+# workflow is intentionally small so this milestone has a real automated gate
+# without pulling forward work that belongs later.
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    env:
+      # Non-sensitive placeholder values so Zod env validation
+      # (src/lib/env) succeeds at build time. No real Supabase project is
+      # contacted during format/lint/typecheck/test/build.
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-publishable-key
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      SUPABASE_SECRET_KEY: ci-placeholder-secret-key
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Format check
+        run: npm run format
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build

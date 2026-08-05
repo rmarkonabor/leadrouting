@@ -46,8 +46,12 @@ describe("server env validation", () => {
   });
 
   it("loads successfully when SUPABASE_SECRET_KEY is present", async () => {
+    // Don't hardcode the value from tests/setup.ts's fallback default — an
+    // environment that already sets SUPABASE_SECRET_KEY (e.g. CI) means the
+    // `??=` there never applies, so assert against whatever is actually set.
+    const expected = process.env.SUPABASE_SECRET_KEY;
     const { serverEnv } = await import("@/lib/env/server");
-    expect(serverEnv.SUPABASE_SECRET_KEY).toBe("test-secret-key");
+    expect(serverEnv.SUPABASE_SECRET_KEY).toBe(expected);
   });
 
   it("throws when SUPABASE_SECRET_KEY is missing", async () => {

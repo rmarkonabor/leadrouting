@@ -265,3 +265,32 @@ create, out of scope to modify.
 `get_advisors` after applying a migration to a real project, not just
 after a local/offline review — default-privilege grants made at function
 creation time are easy to miss by reading the SQL alone.
+
+## ADR-017: Minimal CI workflow added early, ahead of Milestone 9
+
+**Context**: `docs/implementation-plan.md` scopes GitHub Actions CI into
+Milestone 9 ("Production Readiness"). PR #1 (Milestone 1) had no automated
+gate at all — no workflow file, no Vercel integration — so "merge only
+after tests pass" had nothing to check against, and the only verification
+was Claude's self-reported local test run.
+**Decision**: add a small `.github/workflows/ci.yml` now (checkout, Node
+22, `npm ci`, then `npm run format`/`lint`/`typecheck`/`test`/`build`,
+using non-sensitive placeholder env values so Zod env validation succeeds
+without a real Supabase project) so this and future PRs have a real,
+independently-verifiable gate. This is deliberately the minimal subset —
+Playwright, a spun-up local Supabase stack for the RLS integration suite,
+and a dependency vulnerability scan remain Milestone 9 scope per
+`docs/testing-strategy.md` §4, not pulled forward here.
+**Status**: adopted. Verified by running the exact CI steps locally with
+the same placeholder env vars before pushing — this caught a real bug in
+`tests/unit/env.test.ts` (see below).
+
+**Bug caught in the process**: `env.test.ts`'s
+`"loads successfully when SUPABASE_SECRET_KEY is present"` test hardcoded
+an expectation of `"test-secret-key"`, which is only true because
+`tests/setup.ts` sets that value via `??=` (only applies if unset). In an
+environment that already provides a real `SUPABASE_SECRET_KEY` (CI, or any
+future real environment), the `??=` never fires and the hardcoded
+expectation fails. Fixed to assert against whatever
+`process.env.SUPABASE_SECRET_KEY` actually is at test time instead of a
+hardcoded literal.
