@@ -1,0 +1,20 @@
+-- Local development seed data ONLY. Never run against a linked project
+-- (see docs/database-schema.md §22 and CLAUDE.md rules 10-12).
+--
+-- This file intentionally does not create auth.users rows or organizations:
+-- Supabase's local GoTrue instance owns auth.users, and creating a
+-- meaningful organization requires a real authenticated caller (see
+-- bootstrap_organization() in the Milestone 1 migration). For local
+-- development:
+--
+--   1. Run `supabase start`.
+--   2. Sign up a user through the app's /login page (or via the Supabase
+--      Studio Auth UI at http://127.0.0.1:54323).
+--   3. Call the `bootstrap_organization('Acme Co', 'acme-co')` RPC as that
+--      user (the app's root page exposes a "Create organization" action for
+--      exactly this) to get a real, correctly-owned organization for manual
+--      testing of tenant isolation.
+--
+-- This keeps seed data honest: every organization in local dev is owned by
+-- a real local auth user, exactly like production, instead of a synthetic
+-- row with no matching auth identity.
