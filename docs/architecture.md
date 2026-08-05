@@ -96,32 +96,32 @@ docs/                            # this documentation set
 
 ## 4. Module → spec mapping
 
-| Module | Spec sections |
-|---|---|
-| auth | §10 |
-| organizations | §9, §46 (org-level audit), §52 (export/deletion) |
-| users | §8, §10, §14 |
-| teams | §11 |
-| recipient-attributes | §13 |
-| availability | §12 |
-| territories | §23, §24 |
-| lead-sources | §17 |
-| lead-intake | §18 |
-| field-mapping | §19 |
-| custom-variables | §16 |
-| leads | §15, §36, §37 |
-| duplicate-detection | §21 |
-| routing | §25, §26, §27, §28, §29, §34 |
-| assignments | §30, §31, §32, §33 |
-| manual-review | §35 |
-| notes | §38 |
-| activities | §39 |
-| notifications | §40 |
-| integrations | §42 |
-| webhooks | §43 |
-| routing-health | §45 |
-| audit | §46 |
-| imports | §14 (users), §23 (territory import) |
+| Module               | Spec sections                                    |
+| -------------------- | ------------------------------------------------ |
+| auth                 | §10                                              |
+| organizations        | §9, §46 (org-level audit), §52 (export/deletion) |
+| users                | §8, §10, §14                                     |
+| teams                | §11                                              |
+| recipient-attributes | §13                                              |
+| availability         | §12                                              |
+| territories          | §23, §24                                         |
+| lead-sources         | §17                                              |
+| lead-intake          | §18                                              |
+| field-mapping        | §19                                              |
+| custom-variables     | §16                                              |
+| leads                | §15, §36, §37                                    |
+| duplicate-detection  | §21                                              |
+| routing              | §25, §26, §27, §28, §29, §34                     |
+| assignments          | §30, §31, §32, §33                               |
+| manual-review        | §35                                              |
+| notes                | §38                                              |
+| activities           | §39                                              |
+| notifications        | §40                                              |
+| integrations         | §42                                              |
+| webhooks             | §43                                              |
+| routing-health       | §45                                              |
+| audit                | §46                                              |
+| imports              | §14 (users), §23 (territory import)              |
 
 ## 5. Request lifecycle: lead intake to assignment
 

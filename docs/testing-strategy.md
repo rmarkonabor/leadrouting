@@ -6,25 +6,24 @@ day one.
 
 ## 1. Vitest categories (spec §54's 34 categories, grouped)
 
-| Group | Categories | Notes |
-|---|---|---|
-| Identity & access | Authentication, Organization isolation, Row Level Security, Role permissions, User invitations, User deactivation, Team membership | RLS tests run against a local Supabase stack (`supabase start`), asserting queries as different simulated users/roles return correctly scoped rows |
-| Recipients | Availability, Capacity, Custom variables, Recipient attributes | Unit tests on eligibility-filter pure functions plus integration tests against seeded data |
-| Intake | Field mapping, Lead intake, Validation, Duplicate detection | Includes malformed/partial payloads, unknown-field handling modes, idempotency-key replay |
-| Territory | Territory matching | Includes all seven territory types (spec §23), PostGIS radius matching with fixture coordinates |
-| Routing | Routing rule matching, Direct assignment, Round robin, Weighted round robin, Assignment concurrency | Concurrency tests spin up parallel calls to `route_lead`/round-robin selection against the same seed data |
-| Assignment lifecycle | Assignment acceptance, Assignment decline, Assignment expiration, Automatic reassignment, Manual review | Includes idempotent repeat accept/decline calls |
-| Background processing | Queue idempotency, Cron idempotency | Replays the same queue message / re-runs the same cron sweep twice, asserts no duplicate side effects |
-| Integrations | Webhook signatures, Webhook retries, CRM retries | Includes signature verification with tampered payloads, retry-schedule assertions |
-| Operations | Sentry sanitization, Audit logs, Bulk imports | Sentry tests assert the `beforeSend` sanitizer strips every field in the spec §47 removal list from representative event fixtures |
+| Group                 | Categories                                                                                                                         | Notes                                                                                                                                              |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity & access     | Authentication, Organization isolation, Row Level Security, Role permissions, User invitations, User deactivation, Team membership | RLS tests run against a local Supabase stack (`supabase start`), asserting queries as different simulated users/roles return correctly scoped rows |
+| Recipients            | Availability, Capacity, Custom variables, Recipient attributes                                                                     | Unit tests on eligibility-filter pure functions plus integration tests against seeded data                                                         |
+| Intake                | Field mapping, Lead intake, Validation, Duplicate detection                                                                        | Includes malformed/partial payloads, unknown-field handling modes, idempotency-key replay                                                          |
+| Territory             | Territory matching                                                                                                                 | Includes all seven territory types (spec §23), PostGIS radius matching with fixture coordinates                                                    |
+| Routing               | Routing rule matching, Direct assignment, Round robin, Weighted round robin, Assignment concurrency                                | Concurrency tests spin up parallel calls to `route_lead`/round-robin selection against the same seed data                                          |
+| Assignment lifecycle  | Assignment acceptance, Assignment decline, Assignment expiration, Automatic reassignment, Manual review                            | Includes idempotent repeat accept/decline calls                                                                                                    |
+| Background processing | Queue idempotency, Cron idempotency                                                                                                | Replays the same queue message / re-runs the same cron sweep twice, asserts no duplicate side effects                                              |
+| Integrations          | Webhook signatures, Webhook retries, CRM retries                                                                                   | Includes signature verification with tampered payloads, retry-schedule assertions                                                                  |
+| Operations            | Sentry sanitization, Audit logs, Bulk imports                                                                                      | Sentry tests assert the `beforeSend` sanitizer strips every field in the spec §47 removal list from representative event fixtures                  |
 
 Unit tests live colocated with the module (`modules/<name>/*.test.ts`) for
 pure logic (condition evaluation, transformations, Zod schemas). Tests
 that need a database run in `tests/integration` against the local Supabase
 stack, torn down/reset between test files.
 
-## 2. Release-blocking routing tests (spec §54, mandatory before any
-milestone touching routing/assignments is called done)
+## 2. Release-blocking routing tests (spec §54, mandatory before any milestone touching routing/assignments is called done)
 
 1. Concurrent submissions cannot create duplicate active assignments for
    the same lead — verified via parallel `route_lead` calls plus the
@@ -54,6 +53,7 @@ boundaries.
 ## 3. Playwright (introduced at Milestone 9, per spec)
 
 Critical journeys, run against a preview deployment before any pilot:
+
 1. Admin creates an organization, invites a user, the invited user
    activates their account.
 2. Admin creates a team, a territory, a routing flow, publishes it.

@@ -82,7 +82,7 @@ Whatever remains is the eligible set passed to the assignment algorithm.
 - **Weighted round robin** (§29.3): a cumulative-weight cursor
   (`routing_state.rotation_cursor`) walks a virtual sequence built from
   each eligible user's `assignment_weight`; capacity/availability filters
-  run *before* weight-based selection, per spec, so a highly-weighted but
+  run _before_ weight-based selection, per spec, so a highly-weighted but
   unavailable user never consumes a rotation slot.
 - **Fallback** (§29.4): if the primary algorithm yields no eligible user,
   the rule's (or flow's) `default_user_id`/`default_team_id` is tried
@@ -150,6 +150,7 @@ validation, condition-evaluation, and eligibility-filter code as the live
 path (shared functions, not a parallel reimplementation — this is the only
 way to guarantee simulator/live parity, a release-blocking test per spec
 §54) but:
+
 - reads `routing_state` without `FOR UPDATE` and without writing back,
 - never inserts into `leads`, `assignments`, `activities`, or
   `manual_review_items`,

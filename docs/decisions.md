@@ -17,8 +17,7 @@ a complete, unambiguous 13-file set; the spec's own filename casing is
 illustrative example text, not a scope requirement.
 **Status**: adopted.
 
-## ADR-002: Include the PostGIS extension despite it being absent from the
-initial 17-item approved stack list
+## ADR-002: Include the PostGIS extension despite it being absent from the initial 17-item approved stack list
 
 **Context**: The task's opening message enumerated 17 approved
 technologies without mentioning PostGIS. `docs/phase1-product-spec.md` §4
@@ -90,8 +89,7 @@ per-query join cost as the price of closing that window.
 latency at pilot scale, and if so, prefer shortening JWT/session TTL
 before reintroducing claim-based trust.
 
-## ADR-007: Team manager scope defined by team membership, not a separate
-grant table
+## ADR-007: Team manager scope defined by team membership, not a separate grant table
 
 **Context**: spec §8.2 says a team manager acts within "permitted teams"
 but doesn't define how a team becomes "permitted" for a given manager.
@@ -106,8 +104,7 @@ authority in one place. A consequence accepted deliberately: a
 `docs/permissions-matrix.md`, `docs/database-schema.md`, and
 `docs/security-model.md` all reference this column consistently.
 
-## ADR-008: Round-robin/weighted-round-robin concurrency safety via row
-locking, not advisory locks or a separate scheduler
+## ADR-008: Round-robin/weighted-round-robin concurrency safety via row locking, not advisory locks or a separate scheduler
 
 **Context**: spec §29.2–§29.3 and §54 require atomic rotation state under
 concurrent routing requests.
@@ -118,8 +115,7 @@ scheduler/queue-based serialization — plain row-level locking inside the
 existing transaction.
 **Status**: adopted.
 
-## ADR-009: Webhook idempotency relies on a stored `event_id`, not
-provider-side deduplication
+## ADR-009: Webhook idempotency relies on a stored `event_id`, not provider-side deduplication
 
 **Context**: spec §43 requires idempotent delivery and replay protection.
 **Decision**: every outbound webhook event gets a UUID `event_id`
@@ -129,8 +125,7 @@ same `event_id` rather than minting a new one. Receiver-side dedupe on
 `event_id` is documented as the customer's responsibility.
 **Status**: adopted.
 
-## ADR-010: Auth via `@supabase/ssr` with `getUser()` as the only
-authorization-grade identity check
+## ADR-010: Auth via `@supabase/ssr` with `getUser()` as the only authorization-grade identity check
 
 **Context**: the architecture/coverage audit found that no document
 specified which Supabase client-integration pattern to use, and Supabase's
@@ -147,8 +142,7 @@ for non-authoritative client-side UI state, never for a permission
 decision.
 **Status**: adopted.
 
-## ADR-011: Public intake endpoint resolves its source via a scoped
-`SECURITY DEFINER` function, not the Supabase service-role client
+## ADR-011: Public intake endpoint resolves its source via a scoped `SECURITY DEFINER` function, not the Supabase service-role client
 
 **Context**: the audit found that `docs/security-model.md` originally
 restricted service-role key usage to "Queue/Cron consumers and Edge
@@ -178,5 +172,60 @@ file with mandatory extra reviewer sign-off; treat `supabase db reset`
 (local only, never `--linked`) as the practical rollback mechanism
 pre-production; roll back a bad linked migration with a new forward
 migration, never a manual edit or a linked destructive command without
-explicit user approval. Full detail in `docs/database-schema.md` §21a.
+explicit user approval. Full detail in `docs/database-schema.md` §22.
+**Status**: adopted.
+
+## ADR-013: Sentry SDK wiring deferred out of Milestone 1
+
+**Context**: `docs/architecture.md` / `docs/implementation-plan.md`
+originally scoped a Sentry foundation (shared sanitizer + client/server/edge
+config) into Milestone 1. The actual Milestone 1 kickoff instructions given
+for implementation listed 27 explicit requirements and did not include
+Sentry SDK wiring among them, and no real Sentry DSN/org/project exists yet
+(`.env.example` values are placeholders). `@sentry/nextjs` also has not yet
+published confirmed compatibility with this project's Next.js 16.3.0
+(Turbopack) at time of implementation.
+**Decision**: implement the Milestone 1 pieces that don't depend on the
+Sentry SDK — structured logging (`lib/logging`) and the consistent
+`AppError` format — and defer `@sentry/nextjs` installation/configuration
+to the milestone that first needs error monitoring in a real environment,
+rather than wiring an SDK against a placeholder DSN and an unverified
+Next.js version pairing. `lib/logging`'s allow-list is written so a future
+Sentry `beforeSend` sanitizer can reuse the same allowed-key list.
+**Status**: adopted for Milestone 1. Revisit at the start of the next
+milestone that touches production error monitoring — flagged as a known
+limitation, not a scope cut.
+
+## ADR-014: Organization creation via a single `bootstrap_organization()` SECURITY DEFINER function, no direct client insert path
+
+**Context**: Milestone 1 needed some way to create the first organization
+and its owning membership for manual/testing purposes, without building
+the full organization-settings admin module (out of scope until later
+milestones) and without granting a raw client-side INSERT policy on
+`organizations`/`organization_users` (which would make "one organization,
+one owning admin, created atomically" much harder to guarantee).
+**Decision**: `bootstrap_organization(org_name, org_slug)` is a `SECURITY
+DEFINER` Postgres function that creates the organization row and its
+caller's `org_admin` membership row in one transaction, callable only by
+`authenticated` (not `anon`). No INSERT policy exists on either table for
+`authenticated`, so this function is the only path that can create an
+organization — a direct client insert attempt fails RLS. `auth.uid()`
+still reflects the real caller even under SECURITY DEFINER, so the
+function cannot be used to create a membership for someone else.
+**Status**: adopted for Milestone 1. Superseded once a full "create
+organization" admin flow with invitation-based team-building exists.
+
+## ADR-015: Environment validation forced eagerly via `instrumentation.ts`
+
+**Context**: `lib/env/public.ts` and `lib/env/server.ts` validate
+`process.env` via Zod at module-evaluation time, but Zod validation only
+actually runs when something imports those modules. Nothing in the
+Milestone 1 codebase needed `serverEnv` yet (no service-role client exists
+until a later milestone — see ADR-011), so `SUPABASE_SECRET_KEY` validation
+was silently never exercised, undermining spec §53's "All environment
+variables must be validated during application startup."
+**Decision**: add `src/instrumentation.ts` with a `register()` function
+(Next.js's official startup hook, stable since Next 15) that imports both
+env modules under `NEXT_RUNTIME === "nodejs"`, forcing validation to run
+once when the server process starts rather than lazily on first use.
 **Status**: adopted.

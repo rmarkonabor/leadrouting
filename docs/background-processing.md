@@ -6,14 +6,14 @@ exclusively — no Redis, BullMQ, or pg-boss.
 
 ## 1. Queues
 
-| Queue | Producer | Consumer | Purpose |
-|---|---|---|---|
-| `assignment_notifications` | `route_lead`, `reassign_lead` DB functions | notifications module consumer | Send email + in-app notification for a new/changed assignment |
-| `crm_sync` | leads/assignments write paths | integrations module consumer | Create/update CRM contact, sync owner, sync status, add explanation note |
-| `outbound_webhooks` | activities/lead/assignment events | webhooks module consumer | Deliver signed webhook payloads for subscribed events |
-| `integration_retries` | crm_sync / outbound_webhooks failure paths | integrations/webhooks consumers | Re-drive failed integration or webhook jobs on the retry schedule |
-| `csv_imports` | imports module (`startImport`) | imports module consumer | Process a confirmed bulk import transactionally, row by row or in one transaction per spec's "transactional import" requirement |
-| `operational_alerts` | Cron health checks, integration failure thresholds | notifications module consumer | Notify admins of CRM sync failures / webhook retries exhausted |
+| Queue                      | Producer                                           | Consumer                        | Purpose                                                                                                                         |
+| -------------------------- | -------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `assignment_notifications` | `route_lead`, `reassign_lead` DB functions         | notifications module consumer   | Send email + in-app notification for a new/changed assignment                                                                   |
+| `crm_sync`                 | leads/assignments write paths                      | integrations module consumer    | Create/update CRM contact, sync owner, sync status, add explanation note                                                        |
+| `outbound_webhooks`        | activities/lead/assignment events                  | webhooks module consumer        | Deliver signed webhook payloads for subscribed events                                                                           |
+| `integration_retries`      | crm_sync / outbound_webhooks failure paths         | integrations/webhooks consumers | Re-drive failed integration or webhook jobs on the retry schedule                                                               |
+| `csv_imports`              | imports module (`startImport`)                     | imports module consumer         | Process a confirmed bulk import transactionally, row by row or in one transaction per spec's "transactional import" requirement |
+| `operational_alerts`       | Cron health checks, integration failure thresholds | notifications module consumer   | Notify admins of CRM sync failures / webhook retries exhausted                                                                  |
 
 Every message carries a `dedupe_key` unique per `(queue_name, dedupe_key)`
 (see `integration_jobs` in `docs/database-schema.md`) so redelivery by the
@@ -23,14 +23,14 @@ insert succeeded.
 
 ## 2. Cron jobs
 
-| Job | Schedule (indicative) | Action |
-|---|---|---|
-| `expire-assignments` | every 1 minute | Find `assignments` past `acceptance_deadline_at` still `pending/notified/viewed`; call `expire_assignment` for each, which triggers `reassign_lead` |
-| `send-expiration-warnings` | every 1 minute | Find assignments approaching their deadline (e.g. 80% elapsed) not yet warned; enqueue `assignment_notifications` |
-| `drain-crm-sync-retries` | every 5 minutes | Pull `integration_jobs` in `retrying` with `next_retry_at <= now()` for `crm_sync`, re-enqueue |
-| `drain-webhook-retries` | every 5 minutes | Same, for `outbound_webhooks`, following the retry schedule in spec §43 (1m, 5m, 30m, 2h, 12h) |
-| `refresh-routing-health-metrics` | every 5 minutes | Recompute `routing_health_metrics` bucket rows from source tables |
-| `dead-letter-sweep` | hourly | Move jobs that exhausted retry schedule to `dead_letter` status and raise an `operational_alerts` message |
+| Job                              | Schedule (indicative) | Action                                                                                                                                              |
+| -------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `expire-assignments`             | every 1 minute        | Find `assignments` past `acceptance_deadline_at` still `pending/notified/viewed`; call `expire_assignment` for each, which triggers `reassign_lead` |
+| `send-expiration-warnings`       | every 1 minute        | Find assignments approaching their deadline (e.g. 80% elapsed) not yet warned; enqueue `assignment_notifications`                                   |
+| `drain-crm-sync-retries`         | every 5 minutes       | Pull `integration_jobs` in `retrying` with `next_retry_at <= now()` for `crm_sync`, re-enqueue                                                      |
+| `drain-webhook-retries`          | every 5 minutes       | Same, for `outbound_webhooks`, following the retry schedule in spec §43 (1m, 5m, 30m, 2h, 12h)                                                      |
+| `refresh-routing-health-metrics` | every 5 minutes       | Recompute `routing_health_metrics` bucket rows from source tables                                                                                   |
+| `dead-letter-sweep`              | hourly                | Move jobs that exhausted retry schedule to `dead_letter` status and raise an `operational_alerts` message                                           |
 
 All Cron jobs are implemented as thin wrappers that call a Postgres
 database function or an Edge Function; the actual logic (locking,
@@ -48,8 +48,7 @@ it performs, so a crash between "mark completed" and "do the work" is
 impossible — the write of the result and the status update are one
 statement/transaction.
 
-## 4. Idempotency requirements (per spec §41: "every queue message and
-scheduled process must be idempotent")
+## 4. Idempotency requirements (per spec §41: "every queue message and scheduled process must be idempotent")
 
 - Notification sends: keyed by `(assignment_id, notification_event_type)`
   — a resend of the same queue message does not create a duplicate
@@ -70,7 +69,7 @@ scheduled process must be idempotent")
   `completed`.
 - Cron sweeps: each iteration operates on rows matched by a `WHERE`
   clause on current state (e.g. `status = 'pending' AND
-  acceptance_deadline_at < now()`), so running the sweep twice in overlap
+acceptance_deadline_at < now()`), so running the sweep twice in overlap
   is safe — the second run simply matches zero rows for anything the
   first run already transitioned.
 
@@ -78,7 +77,7 @@ scheduled process must be idempotent")
 
 Per spec §40 ("failures must not roll back a successful assignment
 transaction"): notification, CRM sync, and webhook delivery are always
-queued as a side effect *after* the routing/assignment transaction
+queued as a side effect _after_ the routing/assignment transaction
 commits, never inside it. A notification failure updates `integration_jobs`/
 `webhook_deliveries` status and may raise an `operational_alerts` message,
 but never touches `assignments` or `leads` state.

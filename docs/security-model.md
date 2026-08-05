@@ -111,6 +111,7 @@ this status inside `route_lead`, independent of the UI-layer check.
 supported way to wire Supabase Auth into the Next.js App Router — the
 deprecated `@supabase/auth-helpers-nextjs` package is not used. Three
 client factories in `lib/supabase`:
+
 - `createBrowserClient` (from `@supabase/ssr`) for Client Components.
 - `createServerClient` (from `@supabase/ssr`), reading/writing cookies via
   `next/headers`, for Server Components, Server Actions, and Route
@@ -180,7 +181,7 @@ for auth purposes. See `docs/decisions.md` ADR-010.
   per spec §43).
 - Replay protection: each event carries a unique `event_id`; the
   `webhook_deliveries` unique constraint on `(webhook_endpoint_id,
-  event_id)` prevents us from recording/re-emitting the same logical event
+event_id)` prevents us from recording/re-emitting the same logical event
   twice, and documented receiver guidance recommends the same dedupe on
   the customer's side.
 - Retry schedule (1m/5m/30m/2h/12h) and manual retry are logged, never
@@ -197,6 +198,7 @@ invoked.
 `lib/sentry/sanitize.ts` exports one `beforeSend` used identically by
 `sentry.client.config.ts`, `sentry.server.config.ts`, and
 `sentry.edge.config.ts`. It:
+
 - Drops `sendDefaultPii` (set `false`), keeps Session Replay disabled.
 - Strips: names, emails, phones, addresses, form messages, consent text,
   raw/mapped lead payloads, custom variable values, cookies, all
@@ -228,16 +230,16 @@ role has UPDATE/DELETE grants on `audit_logs`; only INSERT and SELECT
 
 ## 9. Known risks and mitigations
 
-| Risk | Mitigation |
-|---|---|
-| Service-role key used outside trusted server contexts, bypassing RLS | Import-boundary lint rule; code review checklist; only Queue/Cron consumers and Edge Functions may import the service-role client; the public intake endpoint uses a scoped `SECURITY DEFINER` function instead of the service-role client |
-| Authorization decision made from an unverified `getSession()` cookie read | Shared `getVerifiedUser()` helper wraps `supabase.auth.getUser()`; `getSession()` is banned from authorization code paths by convention and code review |
-| Unreviewed destructive migration silently dropping/mutating data in a linked environment | Destructive schema changes are isolated into their own migration, called out in the PR, and require explicit reviewer sign-off; linked destructive commands require explicit user approval (CLAUDE.md rules 10–12) |
-| Round-robin race condition producing duplicate/skewed assignments under concurrent submissions | `SELECT ... FOR UPDATE` on `routing_state` inside `route_lead`; concurrency test is release-blocking (spec §54) |
-| Two concurrent requests both create an "active" assignment for the same lead | Partial unique index on `assignments.lead_id`; lead-routing-record lock in `route_lead` |
-| Webhook/CRM sync replay creating duplicate external records | `external_record_links` unique constraint; `webhook_deliveries` unique constraint; dedupe-key pattern on all queue jobs |
-| Stale JWT claim granting access after a membership is revoked | RLS policies re-check `organization_users` live, not a cached claim |
-| PII leaking into Sentry or logs | Shared sanitizer/allow-list used by every capture path; no ad hoc `Sentry.captureException` calls without going through the wrapped helper |
-| CRM/webhook secrets stored in plaintext | Supabase Vault (pgsodium) for credentials at rest; source tokens stored only as hashes |
-| Rate limiting bypassed because no dedicated infra (Redis excluded) | DB-backed counters, acceptable at Phase 1 volume; revisit if pilot traffic exceeds single-Postgres-instance comfort |
-| Cross-organization data exposure via a missing `organization_id` filter in a hand-written query | RLS as backstop even when a module forgets the filter; tenant-isolation tests are release-blocking |
+| Risk                                                                                            | Mitigation                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Service-role key used outside trusted server contexts, bypassing RLS                            | Import-boundary lint rule; code review checklist; only Queue/Cron consumers and Edge Functions may import the service-role client; the public intake endpoint uses a scoped `SECURITY DEFINER` function instead of the service-role client |
+| Authorization decision made from an unverified `getSession()` cookie read                       | Shared `getVerifiedUser()` helper wraps `supabase.auth.getUser()`; `getSession()` is banned from authorization code paths by convention and code review                                                                                    |
+| Unreviewed destructive migration silently dropping/mutating data in a linked environment        | Destructive schema changes are isolated into their own migration, called out in the PR, and require explicit reviewer sign-off; linked destructive commands require explicit user approval (CLAUDE.md rules 10–12)                         |
+| Round-robin race condition producing duplicate/skewed assignments under concurrent submissions  | `SELECT ... FOR UPDATE` on `routing_state` inside `route_lead`; concurrency test is release-blocking (spec §54)                                                                                                                            |
+| Two concurrent requests both create an "active" assignment for the same lead                    | Partial unique index on `assignments.lead_id`; lead-routing-record lock in `route_lead`                                                                                                                                                    |
+| Webhook/CRM sync replay creating duplicate external records                                     | `external_record_links` unique constraint; `webhook_deliveries` unique constraint; dedupe-key pattern on all queue jobs                                                                                                                    |
+| Stale JWT claim granting access after a membership is revoked                                   | RLS policies re-check `organization_users` live, not a cached claim                                                                                                                                                                        |
+| PII leaking into Sentry or logs                                                                 | Shared sanitizer/allow-list used by every capture path; no ad hoc `Sentry.captureException` calls without going through the wrapped helper                                                                                                 |
+| CRM/webhook secrets stored in plaintext                                                         | Supabase Vault (pgsodium) for credentials at rest; source tokens stored only as hashes                                                                                                                                                     |
+| Rate limiting bypassed because no dedicated infra (Redis excluded)                              | DB-backed counters, acceptable at Phase 1 volume; revisit if pilot traffic exceeds single-Postgres-instance comfort                                                                                                                        |
+| Cross-organization data exposure via a missing `organization_id` filter in a hand-written query | RLS as backstop even when a module forgets the filter; tenant-isolation tests are release-blocking                                                                                                                                         |

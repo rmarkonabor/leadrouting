@@ -15,6 +15,7 @@ the source token itself). Accepts `application/json` and
 `application/x-www-form-urlencoded`.
 
 **Headers**
+
 - `Idempotency-Key` (optional) — deduplicates retried requests from the
   same source within the configurable duplicate window.
 - `X-Signature` (optional, required if the source has `signature_settings`
@@ -27,6 +28,7 @@ that source's `field_mappings`. See spec §18 for an example payload.
 **Processing pipeline** (all inside the lead-intake module, calling into
 field-mapping, custom-variables, duplicate-detection, leads, territories,
 routing):
+
 1. Resolve `lead_sources` by hashing `sourceToken` and looking up
    `source_token_hash`; 404 if not found or `status = inactive`.
 2. Rate-limit check against `rate_limit_settings` (429 on breach).
@@ -51,6 +53,7 @@ notifications/webhooks/CRM sync. Only a `submission_logs` row with
 "test mode" semantics — see `docs/decisions.md`.
 
 **Responses**
+
 ```
 201 Created  { "id": "<submission_log_id>", "status": "received" }
 422 Unprocessable Entity  { "errors": [{ "field": "...", "message": "..." }] }
@@ -58,6 +61,7 @@ notifications/webhooks/CRM sync. Only a `submission_logs` row with
 404 Not Found             { "error": "unknown_source" }
 429 Too Many Requests     { "error": "rate_limited", "retry_after": <seconds> }
 ```
+
 The response never includes `assigned_user_id`/`assigned_team_id` unless
 the lead source's organization has explicitly enabled exposing assignment
 in the public response (an opt-in setting, off by default per spec §18).
@@ -65,6 +69,7 @@ in the public response (an opt-in setting, off by default per spec §18).
 ## 2. Inbound CRM webhook
 
 ### `POST /api/webhooks/crm/[connectionId]`
+
 Receives CRM-initiated status changes (spec §42 "receive selected lead
 status changes"). Verifies the CRM adapter's signature scheme
 (adapter-specific), resolves `integration_connections` by `connectionId`,
@@ -78,26 +83,26 @@ with the page that uses them, calling into the relevant module. They are
 not versioned public endpoints; the module function signatures are the
 real "API." Representative surface, grouped by module:
 
-| Module | Representative Server Actions |
-|---|---|
-| organizations | `updateOrganizationSettings`, `exportOrganizationData` |
-| users | `inviteUser`, `deactivateUser`, `changeUserRole`, `startBulkUserImport` |
-| teams | `createTeam`, `updateTeam`, `setTeamMembership` |
-| recipient-attributes | `createRecipientAttribute`, `setUserAttributeValue` |
-| availability | `updateAvailabilityStatus`, `updateWorkingHours`, `updateCapacity` |
-| territories | `createTerritory`, `updateTerritory`, `importTerritories`, `getTerritoryConflicts` |
-| lead-sources | `createLeadSource`, `rotateSourceToken`, `revokeSourceToken` |
-| field-mapping | `saveFieldMapping`, `testFieldMapping` (calls the same pipeline as intake, in dry-run) |
-| custom-variables | `createCustomVariable`, `updateCustomVariable` |
-| leads | `listLeads`, `getLeadDetail`, `updateLeadStatus` |
-| duplicate-detection | `resolveDuplicate` |
-| routing | `createRoutingFlow`, `updateRoutingRules`, `publishRoutingFlow`, `simulateRouting` |
-| assignments | `acceptAssignment`, `declineAssignment`, `manuallyAssignLead`, `manuallyReassignLead` |
-| manual-review | `resolveManualReviewItem`, `dismissManualReviewItem`, `rerunRouting` |
-| notes | `addNote` |
-| integrations | `connectIntegration`, `disconnectIntegration`, `retrySyncJob` |
-| webhooks | `createWebhookEndpoint`, `rotateWebhookSecret`, `retryWebhookDelivery` |
-| imports | `startImport`, `confirmImport` |
+| Module               | Representative Server Actions                                                          |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| organizations        | `updateOrganizationSettings`, `exportOrganizationData`                                 |
+| users                | `inviteUser`, `deactivateUser`, `changeUserRole`, `startBulkUserImport`                |
+| teams                | `createTeam`, `updateTeam`, `setTeamMembership`                                        |
+| recipient-attributes | `createRecipientAttribute`, `setUserAttributeValue`                                    |
+| availability         | `updateAvailabilityStatus`, `updateWorkingHours`, `updateCapacity`                     |
+| territories          | `createTerritory`, `updateTerritory`, `importTerritories`, `getTerritoryConflicts`     |
+| lead-sources         | `createLeadSource`, `rotateSourceToken`, `revokeSourceToken`                           |
+| field-mapping        | `saveFieldMapping`, `testFieldMapping` (calls the same pipeline as intake, in dry-run) |
+| custom-variables     | `createCustomVariable`, `updateCustomVariable`                                         |
+| leads                | `listLeads`, `getLeadDetail`, `updateLeadStatus`                                       |
+| duplicate-detection  | `resolveDuplicate`                                                                     |
+| routing              | `createRoutingFlow`, `updateRoutingRules`, `publishRoutingFlow`, `simulateRouting`     |
+| assignments          | `acceptAssignment`, `declineAssignment`, `manuallyAssignLead`, `manuallyReassignLead`  |
+| manual-review        | `resolveManualReviewItem`, `dismissManualReviewItem`, `rerunRouting`                   |
+| notes                | `addNote`                                                                              |
+| integrations         | `connectIntegration`, `disconnectIntegration`, `retrySyncJob`                          |
+| webhooks             | `createWebhookEndpoint`, `rotateWebhookSecret`, `retryWebhookDelivery`                 |
+| imports              | `startImport`, `confirmImport`                                                         |
 
 Every Server Action: (1) resolves the caller's session + verified
 organization membership server-side, (2) validates input with a Zod
@@ -109,9 +114,11 @@ raw CRUD SQL.
 ## 4. Error shape
 
 All API and Server Action errors use one shape (`lib/errors`):
+
 ```
 { "error": "<stable_code>", "message": "<safe, non-PII message>", "details"?: [...] }
 ```
+
 Stable codes are logged and may reach Sentry; `message` and `details` are
 scrubbed of personal data before being returned or logged, per
 `docs/security-model.md`.

@@ -13,6 +13,20 @@ future implementation pass.
 
 ## Milestone 1 — Foundation
 
+**Status: implemented on `milestone/01-foundation`.** See
+`docs/decisions.md` ADR-013–ADR-015 for three deviations from the plan
+below, made during implementation: Sentry SDK wiring was deferred (no real
+DSN yet, not in the actual kickoff requirements list), organization
+creation goes through a `bootstrap_organization()` `SECURITY DEFINER`
+function rather than a general "create organization" module action, and
+environment validation is forced eagerly via `src/instrumentation.ts`
+rather than relying on first-use. `middleware.ts` was written and then
+migrated to `src/proxy.ts` per Next.js 16.3's deprecation of the
+middleware file convention. RLS/tenant-isolation tests were written
+(`tests/integration/rls-tenant-isolation.test.ts`) but could not be run in
+the implementation sandbox (no Docker daemon available for `supabase
+start`) — see that test file's companion README for how to run them.
+
 **1. Objective**
 Stand up the application skeleton, tenant identity model, authentication,
 and the tenant-isolation guarantees every later milestone depends on.
@@ -21,6 +35,7 @@ and the tenant-isolation guarantees every later milestone depends on.
 None — first milestone.
 
 **3. Database work**
+
 - Enable RLS on every table created in this milestone from day one (no
   table is ever created without RLS enabled in the same migration).
 - `organizations`, `organization_users`, `user_profiles`.
@@ -32,6 +47,7 @@ None — first milestone.
   an oversight.
 
 **4. Server work**
+
 - `lib/supabase`: `@supabase/ssr` browser/server client factories,
   `middleware.ts` session refresh, `getVerifiedUser()` helper wrapping
   `supabase.auth.getUser()` (docs/decisions.md ADR-010).
@@ -44,12 +60,14 @@ None — first milestone.
 - `modules/organizations`: create organization, update settings.
 
 **5. Interface work**
+
 - Login, invitation-acceptance placeholder, password reset, email
   verification pages (spec §48.1).
 - Minimal authenticated shell (nav + sign out) to prove the session flows
   end to end.
 
 **6. Security requirements**
+
 - `SUPABASE_SECRET_KEY` never imported outside a server-only,
   allow-listed directory (ESLint import-boundary rule live from this
   milestone).
@@ -64,6 +82,7 @@ permissions (spec §54 categories) — plus a Sentry-sanitization unit test
 using representative event fixtures.
 
 **8. Manual verification**
+
 - Sign up / verify / log in / log out through the actual UI.
 - Attempt (via a direct API/DB client, not the UI) to read another
   organization's `organization_users` row as an authenticated user of a
@@ -89,8 +108,9 @@ teams, availability, capacity, weights, and recipient attributes.
 Milestone 1 (auth, organizations, RLS pattern, `getVerifiedUser()`).
 
 **3. Database work**
+
 - `teams`, `team_users` (including the `is_manager boolean not null
-  default false` column — docs/decisions.md ADR-007), `user_availability`,
+default false` column — docs/decisions.md ADR-007), `user_availability`,
   `user_assignment_settings`, `recipient_attribute_definitions`,
   `recipient_attribute_values`, `import_jobs`, `import_rows`.
 - RLS on all of the above from creation, including the role-scoped
@@ -101,6 +121,7 @@ Milestone 1 (auth, organizations, RLS pattern, `getVerifiedUser()`).
   `daily_lead_limit >= 0`, `active_lead_limit >= 0`.
 
 **4. Server work**
+
 - `modules/users`: invitation flow, activation, deactivation, role change.
 - `modules/teams`: CRUD, membership management (including toggling
   `is_manager`).
@@ -111,11 +132,13 @@ Milestone 1 (auth, organizations, RLS pattern, `getVerifiedUser()`).
   transactional confirm, error file generation.
 
 **5. Interface work**
+
 - Users, Teams, Recipient attributes, Bulk user import admin pages (spec
   §48.3).
 - Availability settings page for agents (spec §48.2).
 
 **6. Security requirements**
+
 - Every "org" and "team" scoped capability in `docs/permissions-matrix.md`
   for this milestone is enforced by both RLS and a server-side check.
 - `team_manager` access verified against `team_users.is_manager = true`,
@@ -130,6 +153,7 @@ Capacity, Custom variables (N/A yet — deferred to M3), Recipient
 attributes, Bulk imports.
 
 **8. Manual verification**
+
 - Invite a user, accept the invitation, confirm they land with `agent`
   role and can only see their own profile/availability.
 - Promote a user to `team_manager` on Team A only; confirm they cannot see
@@ -158,21 +182,23 @@ Milestone 1 (auth/org model). Independent of Milestone 2's UI but shares
 its RLS conventions.
 
 **3. Database work**
+
 - `lead_sources`, `field_mappings`, `custom_variable_definitions`,
   `leads` (default fields only, per spec §15 — no internal
   location/latitude/longitude columns here), `lead_custom_values`,
   `lead_duplicates`, `submission_logs`, `api_tokens`.
 - `resolve_lead_source(token text) returns table (lead_source_id uuid,
-  organization_id uuid, status text)` as a `SECURITY DEFINER` function
+organization_id uuid, status text)` as a `SECURITY DEFINER` function
   (docs/decisions.md ADR-011) — the only pre-auth database access point.
 - Rate-limit counter table (docs/decisions.md ADR-004 default) keyed by
   `(lead_source_id, time_bucket)`.
 - Constraints: global unique `source_token_hash`; unique
   `(lead_source_id, idempotency_key)`; unique `(lead_source_id,
-  external_submission_id)` where not null; unique `(organization_id,
-  internal_key)` on `custom_variable_definitions`.
+external_submission_id)` where not null; unique `(organization_id,
+internal_key)` on `custom_variable_definitions`.
 
 **4. Server work**
+
 - `modules/lead-sources`: source CRUD, token issuance (shown once) and
   rotation, rate-limit/signature settings.
 - `modules/lead-intake`: `POST /api/v1/intake/[sourceToken]` — token
@@ -188,6 +214,7 @@ its RLS conventions.
   the token-based intake auth entirely).
 
 **5. Interface work**
+
 - Lead sources, Field mappings, Custom lead variables, Submission logs
   admin pages (spec §48.3).
 - Mapping tester UI showing original payload, mapped lead, validation
@@ -196,6 +223,7 @@ its RLS conventions.
   then).
 
 **6. Security requirements**
+
 - The intake route handler never imports the service-role Supabase client
   — verified by the ESLint import-boundary rule from Milestone 1 covering
   this new route.
@@ -211,6 +239,7 @@ targeted test asserting `submission_logs.raw_payload` never appears in a
 Sentry event or a structured log line.
 
 **8. Manual verification**
+
 - Submit a lead via `curl` with field names that don't match internal
   names; confirm it maps correctly per a configured mapping.
 - Resubmit the identical request with the same `Idempotency-Key`; confirm
@@ -240,13 +269,15 @@ Milestone 3 (`leads` table must exist to attach `lead_locations_internal`
 rows to).
 
 **3. Database work**
+
 - Enable the `postgis` extension (docs/decisions.md ADR-002).
 - `lead_locations_internal`, `territories` (with `center_geography
-  geography(Point,4326)` + GIST index), `territory_users`,
+geography(Point,4326)` + GIST index), `territory_users`,
   `territory_teams`.
 - RLS on all of the above from creation.
 
 **4. Server work**
+
 - `modules/territories`: location normalization call (invoked from the
   intake pipeline as a post-processing step), territory CRUD, user/team
   territory linking, postal-code and territory CSV import (reusing the
@@ -254,10 +285,12 @@ rows to).
   detection (spec §24's three severity levels).
 
 **5. Interface work**
+
 - Territories and Territory import admin pages (spec §48.3), including
   conflict warnings surfaced inline (blocking_error/warning/information).
 
 **6. Security requirements**
+
 - Internal coordinates (`internal_latitude`/`internal_longitude`/
   `internal_geography`) are never exposed through any lead-facing API or
   UI field — verified by a test asserting the leads Server Actions'
@@ -270,6 +303,7 @@ Territory matching (all seven types, incl. PostGIS radius with fixture
 coordinates).
 
 **8. Manual verification**
+
 - Create one territory of each type; submit a lead whose normalized
   location should match each in turn; confirm the match (via the
   conflict-detection/diagnostics view, since routing itself isn't built
@@ -296,6 +330,7 @@ Milestones 2 (recipients/eligibility inputs), 3 (leads), and 4
 (territories) must all be complete — routing filters against all three.
 
 **3. Database work**
+
 - `routing_flows`, `routing_flow_versions` (immutable-after-publish
   trigger), `routing_rules`, `routing_rule_versions`, `routing_state`,
   `assignments` (with the partial unique index on `lead_id` for
@@ -309,6 +344,7 @@ Milestones 2 (recipients/eligibility inputs), 3 (leads), and 4
   own `organization_id`).
 
 **4. Server work**
+
 - `modules/routing`: condition evaluator (all spec §27 operators),
   eligibility filter pipeline (spec §30 steps 7–14, exclusion codes from
   spec §33), direct/round-robin/weighted-round-robin/fallback algorithms,
@@ -319,11 +355,13 @@ Milestones 2 (recipients/eligibility inputs), 3 (leads), and 4
 - `modules/manual-review`: queue read model over `manual_review_items`.
 
 **5. Interface work**
+
 - Routing flows, Routing rules, Routing simulator admin pages (spec
   §48.3) — simulator UI surfaces the full explanation structure (spec
   §34).
 
 **6. Security requirements**
+
 - `simulate_routing` verified to write zero rows to `leads`,
   `assignments`, `activities`, `routing_state`, `manual_review_items` —
   enforced by a test, not just code review.
@@ -342,6 +380,7 @@ immutability, simulation zero-side-effect, cross-org routing data
 isolation, explanation-matches-stored-result).
 
 **8. Manual verification**
+
 - Publish a flow with a round-robin team action; fire 20 concurrent test
   leads at it (a script, not manual clicking) and confirm the assignment
   distribution matches expected rotation with no duplicates/skips.
@@ -371,6 +410,7 @@ recipients are exhausted.
 Milestone 5 (`assignments`, `route_lead`, `reassign_lead` must exist).
 
 **3. Database work**
+
 - `notifications`, `integration_jobs` (used generically as the
   dedupe-keyed job/queue record from `docs/background-processing.md`).
 - Any additional columns needed on `assignments` for `notified_at`/
@@ -378,6 +418,7 @@ Milestone 5 (`assignments`, `route_lead`, `reassign_lead` must exist).
   the Milestone 5 schema rather than duplicating).
 
 **4. Server work**
+
 - `modules/notifications`: `assignment_notifications` queue consumer
   (email + in-app), `operational_alerts` consumer.
 - Supabase Queues wiring for `assignment_notifications`.
@@ -387,6 +428,7 @@ Milestone 5 (`assignments`, `route_lead`, `reassign_lead` must exist).
   assignment notification link.
 
 **5. Interface work**
+
 - In-app notifications list/read state (spec §48.2).
 - Assignment accept/decline actions surfaced on the lead detail page
   (full lead detail UI itself is Milestone 7 — this milestone only needs
@@ -394,6 +436,7 @@ Milestone 5 (`assignments`, `route_lead`, `reassign_lead` must exist).
 - Manual review queue interface (spec §48.3) — list/filter/resolve.
 
 **6. Security requirements**
+
 - `accept_assignment`/`decline_assignment` verified idempotent under
   repeated calls (double-click, retried request).
 - Notification queue consumer confirmed not to roll back or block a
@@ -407,6 +450,7 @@ Automatic reassignment, Manual review, Queue idempotency, Cron
 idempotency.
 
 **8. Manual verification**
+
 - Accept an assignment twice in a row (simulating a double-click); confirm
   no error and no duplicate state change.
 - Let an assignment's deadline pass; confirm it expires and reassigns to
@@ -435,6 +479,7 @@ Milestones 3–6 (leads, routing, assignments, manual review all populate
 the data this milestone displays).
 
 **3. Database work**
+
 - `lead_status_definitions` (seeded per-org with the nine default
   statuses), `lead_status_history`, `notes`.
 - Confirm/extend RLS on `leads`/`activities`/`notes`/`manual_review_items`
@@ -443,6 +488,7 @@ the data this milestone displays).
   milestone is where they get full UI-level exercise).
 
 **4. Server work**
+
 - `modules/leads`: `listLeads` (with all spec §36.2 filters),
   `getLeadDetail`, `updateLeadStatus`.
 - `modules/notes`: `addNote`.
@@ -453,11 +499,13 @@ the data this milestone displays).
   new Cron job, `refresh-routing-health-metrics`).
 
 **5. Interface work**
+
 - Dashboard, Lead list, Lead detail, Manual review interface (full page,
   building on Milestone 6's queue actions), Routing health dashboard (spec
   §48.2/§48.3).
 
 **6. Security requirements**
+
 - End-to-end verification (not just unit-level) that an agent's lead list
   contains only their assigned leads, a team manager's only their managed
   teams' leads, and an admin's the full organization — using real
@@ -470,6 +518,7 @@ milestones against the new UI surface) plus new coverage for lead status
 transitions, notes visibility, and routing-health metric accuracy.
 
 **8. Manual verification**
+
 - Log in as an agent, a team manager, and an org admin (three separate
   sessions/fixture users) against the same seeded organization; confirm
   each sees exactly the leads `docs/permissions-matrix.md` says they
@@ -497,6 +546,7 @@ Milestone 7 (a stable lead/status/note/activity model to synchronize) and
 Milestone 6 (assignment events to react to).
 
 **3. Database work**
+
 - `integration_connections`, `integration_field_mappings`,
   `external_record_links`, `integration_logs`, `webhook_endpoints`,
   `webhook_deliveries`.
@@ -506,6 +556,7 @@ Milestone 6 (assignment events to react to).
   updating ADR-003's status either way.
 
 **4. Server work**
+
 - `modules/integrations`: generic CRM adapter interface (`connect`,
   `disconnect`, `test_connection`, `list_users`,
   `create_or_update_contact`, `assign_owner`, `update_status`,
@@ -518,10 +569,12 @@ Milestone 6 (assignment events to react to).
   `dead-letter-sweep`.
 
 **5. Interface work**
+
 - CRM integration, Outbound webhooks, Integration logs admin pages (spec
   §48.3), including manual retry actions.
 
 **6. Security requirements**
+
 - CRM credentials and webhook secrets encrypted at rest per the finalized
   ADR-003 mechanism; never logged or sent to Sentry.
 - `integration_logs.request_summary`/`response_summary` verified
@@ -536,6 +589,7 @@ record regression test that retries a `crm_sync` job multiple times and
 asserts only one `external_record_links` row exists.
 
 **8. Manual verification**
+
 - Connect the CRM adapter against a sandbox/test account; route a lead;
   confirm a contact is created/updated and ownership is assigned.
 - Force a CRM API failure (e.g. point at an invalid endpoint temporarily);
@@ -561,6 +615,7 @@ product surface, only gating work.
 Milestones 1–8 complete.
 
 **3. Database work**
+
 - Review every migration written so far for the reversibility policy in
   `docs/database-schema.md` §21a; confirm no destructive migration lacks
   the required reviewer sign-off trail.
@@ -568,6 +623,7 @@ Milestones 1–8 complete.
   window in the production readiness doc.
 
 **4. Server work**
+
 - GitHub Actions CI pipeline: format, lint, `tsc --noEmit`, Vitest (unit +
   integration against a local Supabase stack spun up in CI), Next.js
   build, dependency vulnerability scan (spec §52 item 18).
@@ -576,9 +632,11 @@ Milestones 1–8 complete.
   explicit approval, not a self-service UI action in Phase 1.
 
 **5. Interface work**
+
 - None new — this milestone verifies existing interface work end to end.
 
 **6. Security requirements**
+
 - Full security review against every item in `docs/security-model.md` §9
   (known risks table), including the corrections made in this audit
   (RLS role-scoping, `getUser()`-only authorization, intake's
@@ -598,6 +656,7 @@ Playwright critical journeys introduced for the first time
 (`docs/testing-strategy.md` §3).
 
 **8. Manual verification**
+
 - Walk all six Playwright critical journeys manually once against a
   preview deployment before automating them, to catch anything the script
   wouldn't.
