@@ -95,15 +95,16 @@ grant table
 
 **Context**: spec §8.2 says a team manager acts within "permitted teams"
 but doesn't define how a team becomes "permitted" for a given manager.
-**Decision**: `team_users` gets an `is_manager boolean default false`
-column; a `team_manager`-role user's permitted teams are exactly the teams
-where they have a `team_users` row with `is_manager = true`. This avoids a
-redundant grants table and keeps team membership and management authority
-in one place.
-**Status**: proposed — confirm during Milestone 2 implementation and
-update `docs/permissions-matrix.md`/`docs/database-schema.md` if a
-separate grant table is chosen instead (e.g. to allow a manager to oversee
-a team without being a member of it).
+**Decision**: `team_users` gets an `is_manager boolean not null default
+false` column; a `team_manager`-role user's permitted teams are exactly the
+teams where they have a `team_users` row with `is_manager = true`. This
+avoids a redundant grants table and keeps team membership and management
+authority in one place. A consequence accepted deliberately: a
+`team_manager` must be a member of a team to manage it — Phase 1 has no
+"manage without belonging" case in the spec, so this is not a gap.
+**Status**: adopted (finalized during the architecture/coverage audit).
+`docs/permissions-matrix.md`, `docs/database-schema.md`, and
+`docs/security-model.md` all reference this column consistently.
 
 ## ADR-008: Round-robin/weighted-round-robin concurrency safety via row
 locking, not advisory locks or a separate scheduler
@@ -126,4 +127,56 @@ generated at creation time and stored in `webhook_deliveries` under a
 unique `(webhook_endpoint_id, event_id)` constraint; retries reuse the
 same `event_id` rather than minting a new one. Receiver-side dedupe on
 `event_id` is documented as the customer's responsibility.
+**Status**: adopted.
+
+## ADR-010: Auth via `@supabase/ssr` with `getUser()` as the only
+authorization-grade identity check
+
+**Context**: the architecture/coverage audit found that no document
+specified which Supabase client-integration pattern to use, and Supabase's
+own guidance warns that `supabase.auth.getSession()` decodes a JWT from
+the cookie without contacting the Auth server, so it can be satisfied by a
+stale or tampered cookie — unsafe as the basis for a server-side
+authorization decision.
+**Decision**: use `@supabase/ssr` (not the deprecated
+`@supabase/auth-helpers-nextjs`) for browser/server/middleware client
+creation, and require every authorization-relevant identity check to go
+through `supabase.auth.getUser()` (verified against the Auth server) via a
+single shared `getVerifiedUser()` helper. `getSession()` is permitted only
+for non-authoritative client-side UI state, never for a permission
+decision.
+**Status**: adopted.
+
+## ADR-011: Public intake endpoint resolves its source via a scoped
+`SECURITY DEFINER` function, not the Supabase service-role client
+
+**Context**: the audit found that `docs/security-model.md` originally
+restricted service-role key usage to "Queue/Cron consumers and Edge
+Functions" without addressing how the public, pre-session
+`POST /api/v1/intake/[sourceToken]` endpoint resolves `lead_sources` by
+token — the only plausible reading was that it also needed the
+service-role client, which would put the most exposed, highest-risk
+endpoint in the codebase on the same privilege level as trusted background
+jobs.
+**Decision**: add `resolve_lead_source(token text) returns table
+(lead_source_id uuid, organization_id uuid, status text)` as a `SECURITY
+DEFINER` Postgres function, callable via RPC by the `anon`/publishable-key
+client. It performs exactly one narrow lookup (hash the token, match
+`source_token_hash`, return three columns) and nothing else. The intake
+route handler never imports the service-role client.
+**Status**: adopted.
+
+## ADR-012: Migration reversibility policy
+
+**Context**: the audit required migrations to be "reversible where
+practical," which the original `docs/database-schema.md` /
+`docs/architecture.md` text didn't address beyond "forward-only."
+**Decision**: default to additive migrations (trivially undone by a
+follow-up migration in local/preview environments); isolate any
+destructive migration (drop/type-change/tightened constraint) into its own
+file with mandatory extra reviewer sign-off; treat `supabase db reset`
+(local only, never `--linked`) as the practical rollback mechanism
+pre-production; roll back a bad linked migration with a new forward
+migration, never a manual edit or a linked destructive command without
+explicit user approval. Full detail in `docs/database-schema.md` §21a.
 **Status**: adopted.

@@ -42,10 +42,54 @@ cost is an extra join per query, judged acceptable for Phase 1 volumes and
 mitigated by the `organization_id` index on every tenant table (see
 `docs/database-schema.md` §21).
 
-Role-scoped policies (team_manager restricted to permitted teams, agent
-restricted to their own assignments) layer an additional `exists` clause
-against `team_users`/`assignments.user_id = auth.uid()` on top of the
-tenant-isolation clause — see `docs/permissions-matrix.md`.
+Role-scoped policies layer an additional predicate on top of the
+tenant-isolation clause above. Concrete examples (illustrative; actual DDL
+lives in migrations):
+
+```sql
+-- leads: org_admin sees all org leads; team_manager sees leads assigned to
+-- teams they manage; agent sees only leads assigned to them.
+create policy leads_role_scoped_select on leads
+  for select
+  using (
+    exists (
+      select 1 from organization_users ou
+      where ou.organization_id = leads.organization_id
+        and ou.user_id = auth.uid()
+        and ou.status = 'active'
+        and (
+          ou.role = 'org_admin'
+          or (
+            ou.role = 'team_manager'
+            and exists (
+              select 1 from team_users tu
+              where tu.team_id = leads.assigned_team_id
+                and tu.user_id = auth.uid()
+                and tu.is_manager = true
+            )
+          )
+          or (ou.role = 'agent' and leads.assigned_user_id = auth.uid())
+        )
+    )
+  );
+
+-- assignments: an agent may only accept/decline their own assignment.
+create policy assignments_agent_self on assignments
+  for select
+  using (
+    user_id = auth.uid()
+    or exists ( /* org_admin / permitted team_manager clause, same shape as above */ 1 )
+  );
+```
+
+The same `tu.is_manager = true` predicate (backed by the `team_users`
+column added in `docs/database-schema.md`) is reused on `teams`,
+`manual_review_items`, and `routing_health_metrics` policies so a
+`team_manager` can never read or act on a team they don't manage, and an
+`agent` can never read another agent's lead or assignment row. This
+directly satisfies audit requirements 5–7 (agents isolated from other
+agents' leads, managers isolated to managed teams, admins isolated to
+their own organization).
 
 **Defense in depth**: every module function additionally takes the
 server-resolved `organization_id` as an explicit parameter and includes it
@@ -63,13 +107,48 @@ their resolved org away from protected routes) and in RLS policies (an
 somehow bypassed). Automatic assignment eligibility (spec §12) also checks
 this status inside `route_lead`, independent of the UI-layer check.
 
+**Client library**: the current `@supabase/ssr` package is the only
+supported way to wire Supabase Auth into the Next.js App Router — the
+deprecated `@supabase/auth-helpers-nextjs` package is not used. Three
+client factories in `lib/supabase`:
+- `createBrowserClient` (from `@supabase/ssr`) for Client Components.
+- `createServerClient` (from `@supabase/ssr`), reading/writing cookies via
+  `next/headers`, for Server Components, Server Actions, and Route
+  Handlers.
+- Root `middleware.ts` calls `createServerClient` with a request/response
+  cookie adapter and refreshes the session on every matched request, per
+  the standard `@supabase/ssr` middleware pattern, so cookies stay valid
+  across Server Component renders.
+
+**`getUser()`, never `getSession()`, for authorization**: `getSession()`
+reads the session out of the cookie and decodes the JWT locally — it does
+**not** contact the Supabase Auth server, so a tampered or stale cookie can
+pass a `getSession()` check. Every server-side authorization decision
+(resolving the active organization, checking role/scope before a module
+function runs, RLS aside) calls `supabase.auth.getUser()`, which revalidates
+the token against the Supabase Auth server on each call. `getSession()` may
+only be used for non-authoritative purposes (e.g. an optimistic client-side
+"am I logged in" check for UI state) and is never the basis for a
+permission decision. This is enforced by a single shared
+`getVerifiedUser()` helper in `lib/supabase` that every module's
+authorization entry point calls — no module calls `getSession()` directly
+for auth purposes. See `docs/decisions.md` ADR-010.
+
 ## 3. Secrets
 
 - `SUPABASE_SECRET_KEY` (service role) is used only in server-only modules
   invoked from Queue/Cron consumers and Edge Functions — never imported by
-  any file reachable from a client bundle. An ESLint import-boundary rule
-  enforces this at build time (fails CI if `lib/supabase/service-role.ts`
-  is imported outside an allow-listed server-only directory list).
+  any file reachable from a client bundle, and **not** by the public
+  intake route handler. An ESLint import-boundary rule enforces this at
+  build time (fails CI if `lib/supabase/service-role.ts` is imported
+  outside an allow-listed server-only directory list, which explicitly
+  excludes `app/api/v1/intake`). The intake handler's one pre-auth need —
+  resolving a `lead_sources` row by token — is served by the narrow
+  `SECURITY DEFINER` function `resolve_lead_source` (see
+  `docs/database-schema.md` §6 and ADR-011) called via RPC with the normal
+  `anon`/publishable-key client, so the service-role key never appears on
+  the request path with the largest untrusted-input surface (a public,
+  unauthenticated-by-session endpoint).
 - CRM credentials (`CRM_CLIENT_SECRET`, per-organization OAuth tokens) are
   stored encrypted using **Supabase Vault** (a Postgres extension backed
   by `pgsodium`), not application-level crypto with a manually-managed
@@ -151,7 +230,9 @@ role has UPDATE/DELETE grants on `audit_logs`; only INSERT and SELECT
 
 | Risk | Mitigation |
 |---|---|
-| Service-role key used outside trusted server contexts, bypassing RLS | Import-boundary lint rule; code review checklist; only Queue/Cron consumers and Edge Functions may import the service-role client |
+| Service-role key used outside trusted server contexts, bypassing RLS | Import-boundary lint rule; code review checklist; only Queue/Cron consumers and Edge Functions may import the service-role client; the public intake endpoint uses a scoped `SECURITY DEFINER` function instead of the service-role client |
+| Authorization decision made from an unverified `getSession()` cookie read | Shared `getVerifiedUser()` helper wraps `supabase.auth.getUser()`; `getSession()` is banned from authorization code paths by convention and code review |
+| Unreviewed destructive migration silently dropping/mutating data in a linked environment | Destructive schema changes are isolated into their own migration, called out in the PR, and require explicit reviewer sign-off; linked destructive commands require explicit user approval (CLAUDE.md rules 10–12) |
 | Round-robin race condition producing duplicate/skewed assignments under concurrent submissions | `SELECT ... FOR UPDATE` on `routing_state` inside `route_lead`; concurrency test is release-blocking (spec §54) |
 | Two concurrent requests both create an "active" assignment for the same lead | Partial unique index on `assignments.lead_id`; lead-routing-record lock in `route_lead` |
 | Webhook/CRM sync replay creating duplicate external records | `external_record_links` unique constraint; `webhook_deliveries` unique constraint; dedupe-key pattern on all queue jobs |

@@ -33,10 +33,13 @@ server check has a bug).
 | View team routing health / performance | ✅ | ✅ (permitted teams only) | ❌ | org / team | Both |
 
 "Permitted teams" for a `team_manager` = teams where that user has a
-`team_users` row **and** is designated manager (a `team_users.is_manager`
-flag, or equivalently the role is only meaningful when combined with team
-membership — see `docs/decisions.md` for which of these two designs is
-chosen before Milestone 2).
+`team_users` row with `is_manager = true` (column defined in
+`docs/database-schema.md` §2). This is finalized (`docs/decisions.md`
+ADR-007) — a `team_manager` with no `is_manager = true` row on any team has
+no team-scoped access at all, and an `org_admin`'s access is never gated
+by this flag. The same predicate is the basis for the RLS policies in
+`docs/security-model.md` §1 that restrict `leads`, `manual_review_items`,
+and `routing_health_metrics` visibility.
 
 ## Recipient attributes, territories, lead sources, custom variables, field mapping, routing configuration
 

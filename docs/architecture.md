@@ -164,9 +164,16 @@ assignment per lead.
 - Server Components and Server Actions are the only place modules are
   imported from; `components/` never talks to Supabase directly.
 - All Supabase secret-key usage (service role, used only by Queue/Cron
-  consumers and Edge Functions) lives in `lib/supabase` behind a factory
+  consumers and Edge Functions — explicitly not the public intake route,
+  which uses a scoped `SECURITY DEFINER` lookup function instead, see
+  `docs/decisions.md` ADR-011) lives in `lib/supabase` behind a factory
   that is never imported by client bundles — enforced by ESLint boundary
   rules restricting `lib/supabase/server-only.ts` imports to server files.
+- Session/identity resolution uses `@supabase/ssr` client factories and a
+  shared `getVerifiedUser()` helper that calls `supabase.auth.getUser()`
+  (server-verified) rather than `getSession()` (locally-decoded, not safe
+  for authorization) — see `docs/security-model.md` §2 and
+  `docs/decisions.md` ADR-010.
 - Routing/assignment logic lives in Postgres database functions, not
   application code, so it can never be partially executed by a dropped
   request or a client retry.

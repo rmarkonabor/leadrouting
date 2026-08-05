@@ -64,10 +64,17 @@ API/action, and test. Coverage status: **Planned** (fully designed above),
 | GitHub Actions | §5.54, §56.59 | n/a (CI config) | n/a | `.github/workflows/ci.yml` (Milestone 9) | CI itself is the test runner | Planned | |
 | Production readiness documentation | §5.55, §55 (Milestone 9) | n/a | n/a | this documentation set + Milestone 9 deliverables | n/a | Planned | |
 | Vercel preview/production deploy | §56.60 | n/a | n/a | Vercel project config | n/a | Planned | Production deploy requires explicit approval (CLAUDE.md) |
-| Team-manager "permitted teams" scoping mechanism | §8.2 | teams, permissions | team_users | n/a | Team membership | Needs Clarification | See decisions.md ADR-007 |
+| Team-manager "permitted teams" scoping mechanism | §8.2 | teams, permissions | team_users (`is_manager`) | n/a | Team membership | Planned | Finalized: decisions.md ADR-007 |
 | Rate limiting implementation | §18, §52 | lead-intake | (new counter table, TBD) | n/a | Lead intake | Needs Clarification | See decisions.md ADR-004 |
 | Intake test mode exact persistence semantics | §18 | lead-intake | submission_logs | n/a | Lead intake | Needs Clarification | See decisions.md ADR-005 |
 | CRM/webhook credential encryption mechanism | §52 | integrations, webhooks | integration_connections, webhook_endpoints | n/a | n/a | Needs Clarification | See decisions.md ADR-003 |
+| Organization data export | §8.1 item 25, §52 item 20 | organizations | (reads across tenant tables, no new table) | `exportOrganizationData` | (covered under organization isolation tests) | Planned | Audited action, org_admin only |
+| Organization data deletion procedure | §52 item 21 | organizations | n/a (operational runbook, not a feature) | documented procedure, executed manually with approval | n/a | Planned | Milestone 9 deliverable; not a self-service UI action in Phase 1 |
+| Dependency vulnerability checks | §52 item 18 | n/a (CI config) | n/a | GitHub Actions dependency audit step (e.g. `npm audit`/Dependabot) | CI itself is the check | Planned | Milestone 9 |
+| Separate development/preview/production environments | §52 item 17 | n/a | n/a | distinct Supabase projects + Vercel environments, distinct env vars per `.env.example` | (covered by deployment documentation review) | Planned | Milestone 9 |
+| Database backups | §52 item 16 | n/a | n/a | Supabase managed backups; verified, not built | (covered by backup review) | Planned | Milestone 9 "backup review" |
+| Least-privilege service-role scoping (incl. public intake endpoint) | §52 item 23, §9 | lead-intake, lib/supabase | n/a | `resolve_lead_source` SECURITY DEFINER function | (covered under tenant isolation / RLS tests) | Planned | See decisions.md ADR-011 |
+| `@supabase/ssr` + `getUser()`-based authorization | §10, §52 | auth, lib/supabase | n/a | `getVerifiedUser()` helper | Authentication | Planned | See decisions.md ADR-010 |
 
 ## Explicitly excluded (traced, not built)
 

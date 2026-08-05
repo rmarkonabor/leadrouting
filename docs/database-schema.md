@@ -41,8 +41,14 @@ default_fallback_user_id, timezone, operating_hours jsonb, created_at, updated_a
 Constraint: unique (`organization_id`, `name`).
 
 ### `team_users`
-`id, organization_id, team_id, user_id, created_at`
-Constraint: unique (`team_id`, `user_id`).
+`id, organization_id, team_id, user_id, is_manager boolean not null default
+false, created_at`
+Constraint: unique (`team_id`, `user_id`). `is_manager = true` is what makes
+a team "permitted" for a `team_manager`-role user — see
+`docs/permissions-matrix.md` and `docs/decisions.md` ADR-007 (finalized).
+An `is_manager` row is only meaningful when the user's
+`organization_users.role = team_manager`; an `org_admin`'s access is never
+gated by this flag.
 
 ## 3. Availability & capacity
 
@@ -101,6 +107,18 @@ signature_settings jsonb, created_at, updated_at`
 Constraint: unique `source_token_hash` **global** (tokens must be globally
 unique to route an inbound request to the right org before org context
 exists).
+
+**Pre-auth lookup**: the intake route handler (`POST
+/api/v1/intake/[sourceToken]`) has no user session and therefore no RLS
+context, but must resolve `lead_sources` by token before any org context
+exists. This does **not** use the Supabase service-role client. Instead a
+`SECURITY DEFINER` Postgres function, `resolve_lead_source(token text)
+returns table (lead_source_id uuid, organization_id uuid, status text)`,
+hashes the input and looks up exactly one row, callable by the `anon`
+Postgres role via RPC. This keeps the intake path privilege-scoped to one
+narrow, audited function instead of granting the route handler broad
+service-role access — see `docs/security-model.md` §3 and
+`docs/decisions.md` ADR-011.
 
 ### `field_mappings`
 Per spec §19, one row per mapped field per source:
@@ -379,3 +397,38 @@ created_at`
 - `territories` gets a GIST index on `center_geography` for radius
   queries (PostGIS).
 - `activities(lead_id, created_at)` supports timeline rendering.
+- `team_users(team_id, is_manager)` supports the role-scoped RLS policies
+  in `docs/security-model.md` §1.
+
+## 22. Migration reversibility and destructive-operation policy
+
+Per audit requirement: migrations are forward-only files under
+`supabase/migrations/` (CLAUDE.md rule 9), but "reversible where
+practical" means:
+
+1. Every migration is additive by default (new table, new column with a
+   default or nullable, new index, new policy). Additive migrations are
+   trivially "reversed" by a follow-up migration that drops the added
+   object, so no destructive step is ever required to undo a mistake made
+   same-day in local/preview environments.
+2. A migration that would be destructive against real data (dropping a
+   column, dropping a table, tightening a constraint that could reject
+   existing rows, changing a column type) is written as its own isolated
+   migration, called out explicitly in the PR description, and requires
+   one extra reviewer acknowledgment before merge — never bundled silently
+   into an additive migration.
+3. Local development uses `supabase db reset` freely (drops and replays
+   all migrations against the local stack) — this is the practical
+   "reversibility" mechanism pre-production. It is never run with
+   `--linked` (CLAUDE.md rule 12).
+4. Against a linked (preview/production) database, there is no automatic
+   "down" migration; rollback of a bad migration is a new forward-only
+   migration that reverts the change, written and reviewed like any other
+   migration — never a manual schema edit (CLAUDE.md rule 9) and never a
+   linked destructive command without explicit user approval (CLAUDE.md
+   rule 11). See `docs/decisions.md` ADR-012.
+5. Destructive linked-database operations (`drop table`, `truncate`,
+   `delete` without a `where` tied to a specific reviewed cleanup, `db
+   reset --linked`) are not part of normal development workflow at all —
+   they only ever happen as a deliberate, user-approved, documented
+   action, per CLAUDE.md rules 10–12.
