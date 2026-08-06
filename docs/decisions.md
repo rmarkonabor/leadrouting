@@ -499,3 +499,88 @@ normally. Satisfies the literal "remove or protect the test routes before
 production" instruction via the "protect" option — no manual removal step
 is needed before a real Production deploy.
 **Status**: adopted.
+
+## ADR-027: Milestone 4 (Territories) deferred until Milestone 3 (Lead Intake) is complete
+
+**Context**: a kickoff mid-session asked to implement "only the
+territories and internal location processing milestone" directly, before
+Milestone 3. `docs/implementation-plan.md` sequences Milestone 3 (Lead
+Intake) before Milestone 4 (Territories), and CLAUDE.md rule 2 requires
+milestones to be completed in that order. Milestone 4's own scope also
+depends on Milestone 3's output: `lead_locations_internal` attaches to the
+`leads` table, and its "original submitted location preservation" /
+"internal geographic metadata separated from default lead data"
+requirements are meaningless before `leads` exists.
+**Decision**: flagged the conflict per CLAUDE.md rule 1 rather than
+building Territories out of order; the user chose to implement Milestone 3
+first. This migration (`20260806120000_milestone3_lead_intake.sql`)
+implements Lead Intake; Territories resumes as Milestone 4 afterward.
+**Status**: adopted.
+
+## ADR-028: Source tokens are hashed in TypeScript, not inside the `resolve_lead_source` Postgres function
+
+**Context**: ADR-011 established that the intake route resolves its
+`lead_sources` row via a `SECURITY DEFINER` function rather than the
+service-role client, described as hashing the incoming token internally.
+**Decision**: hash the plaintext token with Node's `crypto` (sha256 hex)
+in `modules/lead-sources/hashSourceToken`, both at token issuance
+(`createLeadSource`/`rotateLeadSourceToken`) and at intake time
+(`processLeadSubmission`), and pass only the resulting hash into
+`resolve_lead_source(p_token_hash)`/`record_lead_submission`. This keeps a
+single hashing implementation instead of two (Node at issuance, `pgcrypto`
+at lookup) that would need to stay byte-for-byte identical, while keeping
+the plaintext token itself out of any SQL function body or query log.
+`pgcrypto` is still enabled (`extensions.digest`) for future use, but
+nothing in this migration currently calls it directly.
+**Status**: adopted.
+
+## ADR-029: `record_lead_submission` is one transactional SECURITY DEFINER function, not multiple RPC round-trips
+
+**Context**: the public intake route has no session, so every write it
+performs (`submission_logs`, `leads`, `lead_custom_values`,
+`lead_duplicates`) must go through a function callable by the `anon` role,
+bypassing RLS. Field mapping, validation, and duplicate-detection _logic_
+live in TypeScript (`modules/field-mapping`, `modules/duplicate-detection`)
+for unit-testability, but the actual multi-table write needs to be atomic:
+a lead must never exist without its submission log, and a partially-applied
+duplicate/custom-value write is worse than either succeeding or failing
+outright.
+**Decision**: one `plpgsql` `SECURITY DEFINER` function takes the
+already-decided mapping/validation/duplicate outputs as parameters and
+performs the entire write — including its own idempotency-key re-check —
+in a single transaction, mirroring the pattern CLAUDE.md rule 21 requires
+for `route_lead` and friends even though intake recording isn't literally
+one of the five named operations. The function independently re-validates
+`lead_source_id`/status rather than trusting its caller, since it is
+reachable by an unauthenticated request.
+**Status**: adopted.
+
+## ADR-030: Duplicate-detection window and default action configured via `organizations.settings`, not a new column
+
+**Context**: spec §21 requires a configurable duplicate window and one of
+four configurable actions, but neither `docs/database-schema.md` nor the
+spec names where this configuration lives — no column exists on
+`lead_sources` or a dedicated table for it.
+**Decision**: read `organizations.settings.duplicateDetection = {
+windowHours, action }` (the existing Milestone 1 `settings jsonb` column),
+falling back to `{ windowHours: 24, action: "flag_and_continue" }` when
+unset, rather than adding a new migration column ahead of an explicit
+product decision on where per-source vs. per-org overrides should live.
+**Status**: adopted — revisit if a later milestone needs per-source
+overrides.
+
+## ADR-031: `leads.lead_status`/`assignment_status` are plain, loosely-constrained columns in this milestone
+
+**Context**: spec §37 describes org-configurable `lead_status_definitions`
+(Milestone 7), and routing/assignment states don't exist until Milestone
+5/6. Milestone 3 needs the `leads` table now but has nothing yet to
+foreign-key `lead_status` against, and no live assignment states to
+enumerate for `assignment_status`.
+**Decision**: `lead_status` is free text defaulting to `'new'` (no FK, no
+enum); `assignment_status` is text constrained by a `check` to the single
+value `'unassigned'` for now. Both are intentionally loose placeholders —
+Milestone 7 will add the `lead_status_definitions` relationship, and
+Milestone 5/6 will widen the `assignment_status` check constraint (or
+convert it to an enum) as real states are introduced, in their own
+migrations.
+**Status**: adopted.

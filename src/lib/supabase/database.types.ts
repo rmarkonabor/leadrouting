@@ -29,6 +29,35 @@ export type ImportStatus =
   "pending" | "validating" | "ready" | "importing" | "completed" | "failed";
 export type ImportRowStatus = "valid" | "invalid" | "imported" | "skipped";
 
+export type LeadSourceType =
+  "api" | "webhook" | "external_form" | "manual" | "csv" | "crm";
+export type LeadSourceStatus = "active" | "inactive";
+export type FieldMappingDestinationType = "default_field" | "custom_variable" | "ignored";
+export type FieldMappingTransformation =
+  | "trim"
+  | "lowercase"
+  | "uppercase"
+  | "normalize_email"
+  | "normalize_phone"
+  | "parse_number"
+  | "parse_currency"
+  | "to_boolean"
+  | "split_full_name"
+  | "join_values"
+  | "replace_values"
+  | "apply_default";
+export type SubmissionLogStatus =
+  "received" | "validated" | "failed" | "resubmitted" | "ignored";
+export type LeadDuplicateMatchBasis =
+  | "idempotency_key"
+  | "external_submission_id"
+  | "email"
+  | "phone"
+  | "external_crm_record_id";
+export type LeadDuplicateAction =
+  "flag_and_continue" | "send_to_manual_review" | "update_existing" | "reject_submission";
+export type LeadDuplicateStatus = "unique" | "possible_duplicate" | "duplicate";
+
 export interface Database {
   public: {
     Tables: {
@@ -388,6 +417,311 @@ export interface Database {
         Update: never;
         Relationships: [];
       };
+      lead_sources: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
+          source_type: LeadSourceType;
+          status: LeadSourceStatus;
+          source_token_hash: string;
+          default_routing_flow_id: string | null;
+          rate_limit_settings: Record<string, unknown>;
+          signature_settings: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          name: string;
+          source_type: LeadSourceType;
+          status?: LeadSourceStatus;
+          source_token_hash: string;
+          default_routing_flow_id?: string | null;
+          rate_limit_settings?: Record<string, unknown>;
+          signature_settings?: Record<string, unknown>;
+        };
+        Update: Partial<{
+          name: string;
+          status: LeadSourceStatus;
+          source_token_hash: string;
+          default_routing_flow_id: string | null;
+          rate_limit_settings: Record<string, unknown>;
+          signature_settings: Record<string, unknown>;
+        }>;
+        Relationships: [];
+      };
+      api_tokens: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_source_id: string;
+          token_hash: string;
+          last_used_at: string | null;
+          revoked_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_source_id: string;
+          token_hash: string;
+          last_used_at?: string | null;
+          revoked_at?: string | null;
+        };
+        Update: Partial<{
+          last_used_at: string | null;
+          revoked_at: string | null;
+        }>;
+        Relationships: [];
+      };
+      field_mappings: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_source_id: string;
+          source_field_name: string;
+          destination_type: FieldMappingDestinationType;
+          destination_field: string | null;
+          data_type: string;
+          required: boolean;
+          default_value: unknown;
+          transformation: FieldMappingTransformation | null;
+          validation_rule: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_source_id: string;
+          source_field_name: string;
+          destination_type: FieldMappingDestinationType;
+          destination_field?: string | null;
+          data_type: string;
+          required?: boolean;
+          default_value?: unknown;
+          transformation?: FieldMappingTransformation | null;
+          validation_rule?: Record<string, unknown>;
+        };
+        Update: Partial<{
+          source_field_name: string;
+          destination_type: FieldMappingDestinationType;
+          destination_field: string | null;
+          data_type: string;
+          required: boolean;
+          default_value: unknown;
+          transformation: FieldMappingTransformation | null;
+          validation_rule: Record<string, unknown>;
+        }>;
+        Relationships: [];
+      };
+      custom_variable_definitions: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
+          internal_key: string;
+          description: string | null;
+          field_type: AttributeFieldType;
+          required: boolean;
+          default_value: unknown;
+          options: unknown[];
+          validation_rules: Record<string, unknown>;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          name: string;
+          internal_key: string;
+          description?: string | null;
+          field_type: AttributeFieldType;
+          required?: boolean;
+          default_value?: unknown;
+          options?: unknown[];
+          validation_rules?: Record<string, unknown>;
+          active?: boolean;
+        };
+        Update: Partial<{
+          name: string;
+          internal_key: string;
+          description: string | null;
+          field_type: AttributeFieldType;
+          required: boolean;
+          default_value: unknown;
+          options: unknown[];
+          validation_rules: Record<string, unknown>;
+          active: boolean;
+        }>;
+        Relationships: [];
+      };
+      leads: {
+        Row: {
+          id: string;
+          organization_id: string;
+          first_name: string | null;
+          last_name: string | null;
+          full_name: string | null;
+          email: string | null;
+          phone: string | null;
+          street_address: string | null;
+          unit_number: string | null;
+          neighborhood: string | null;
+          city: string | null;
+          county: string | null;
+          state_province: string | null;
+          postal_code: string | null;
+          country: string | null;
+          lead_source_id: string | null;
+          external_submission_id: string | null;
+          message: string | null;
+          campaign: string | null;
+          medium: string | null;
+          referrer: string | null;
+          landing_page: string | null;
+          email_consent: boolean;
+          sms_consent: boolean;
+          privacy_consent: boolean;
+          consent_text: string | null;
+          consent_timestamp: string | null;
+          consent_ip: string | null;
+          assigned_team_id: string | null;
+          assigned_user_id: string | null;
+          lead_status: string;
+          assignment_status: string;
+          priority: number;
+          duplicate_status: LeadDuplicateStatus;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          full_name?: string | null;
+          email?: string | null;
+          phone?: string | null;
+          street_address?: string | null;
+          unit_number?: string | null;
+          neighborhood?: string | null;
+          city?: string | null;
+          county?: string | null;
+          state_province?: string | null;
+          postal_code?: string | null;
+          country?: string | null;
+          lead_source_id?: string | null;
+          external_submission_id?: string | null;
+          message?: string | null;
+          campaign?: string | null;
+          medium?: string | null;
+          referrer?: string | null;
+          landing_page?: string | null;
+          email_consent?: boolean;
+          sms_consent?: boolean;
+          privacy_consent?: boolean;
+          consent_text?: string | null;
+          consent_timestamp?: string | null;
+          consent_ip?: string | null;
+          assigned_team_id?: string | null;
+          assigned_user_id?: string | null;
+          lead_status?: string;
+          priority?: number;
+          duplicate_status?: LeadDuplicateStatus;
+        };
+        Update: Partial<{
+          lead_status: string;
+          priority: number;
+          assigned_team_id: string | null;
+          assigned_user_id: string | null;
+          duplicate_status: LeadDuplicateStatus;
+        }>;
+        Relationships: [];
+      };
+      lead_custom_values: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          variable_definition_id: string;
+          value: unknown;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_id: string;
+          variable_definition_id: string;
+          value: unknown;
+        };
+        Update: Partial<{
+          value: unknown;
+        }>;
+        Relationships: [];
+      };
+      lead_duplicates: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          duplicate_of_lead_id: string;
+          match_basis: LeadDuplicateMatchBasis;
+          action_taken: LeadDuplicateAction;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_id: string;
+          duplicate_of_lead_id: string;
+          match_basis: LeadDuplicateMatchBasis;
+          action_taken: LeadDuplicateAction;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      submission_logs: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_source_id: string;
+          raw_payload: unknown;
+          mapped_payload: unknown;
+          validation_errors: unknown[];
+          status: SubmissionLogStatus;
+          idempotency_key: string | null;
+          external_submission_id: string | null;
+          test_mode: boolean;
+          resulting_lead_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_source_id: string;
+          raw_payload: unknown;
+          mapped_payload?: unknown;
+          validation_errors?: unknown[];
+          status?: SubmissionLogStatus;
+          idempotency_key?: string | null;
+          external_submission_id?: string | null;
+          test_mode?: boolean;
+          resulting_lead_id?: string | null;
+        };
+        Update: Partial<{
+          status: SubmissionLogStatus;
+          resulting_lead_id: string | null;
+          mapped_payload: unknown;
+          validation_errors: unknown[];
+        }>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -410,6 +744,43 @@ export interface Database {
       find_auth_user_id_by_email: {
         Args: { p_email: string };
         Returns: string | null;
+      };
+      resolve_lead_source: {
+        Args: { p_token_hash: string };
+        Returns: {
+          lead_source_id: string;
+          organization_id: string;
+          status: LeadSourceStatus;
+          rate_limit_settings: Record<string, unknown>;
+          signature_settings: Record<string, unknown>;
+        }[];
+      };
+      check_and_increment_intake_rate_limit: {
+        Args: {
+          p_lead_source_id: string;
+          p_window_seconds: number;
+          p_max_requests: number;
+        };
+        Returns: boolean;
+      };
+      record_lead_submission: {
+        Args: {
+          p_lead_source_id: string;
+          p_idempotency_key: string | null;
+          p_external_submission_id: string | null;
+          p_raw_payload: unknown;
+          p_mapped_payload: unknown;
+          p_validation_errors: unknown;
+          p_submission_status: SubmissionLogStatus;
+          p_test_mode: boolean;
+          p_lead_fields: unknown;
+          p_lead_duplicate_status: LeadDuplicateStatus | null;
+          p_custom_values: unknown;
+          p_duplicate_of_lead_id: string | null;
+          p_match_basis: LeadDuplicateMatchBasis | null;
+          p_duplicate_action: LeadDuplicateAction | null;
+        };
+        Returns: { submission_log_id: string; lead_id: string | null }[];
       };
     };
   };

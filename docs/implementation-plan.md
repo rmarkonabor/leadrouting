@@ -198,6 +198,9 @@ imports validate and remain transactional; all quality gates pass.
 
 ## Milestone 3 — Lead Intake
 
+**Status: implemented.** See docs/decisions.md ADR-027 through ADR-031.
+Migration: `supabase/migrations/20260806120000_milestone3_lead_intake.sql`.
+
 **1. Objective**
 Accept leads from the outside world safely, map and validate them, and
 prevent duplicates — without yet routing them.
