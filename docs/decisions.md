@@ -294,3 +294,130 @@ future real environment), the `??=` never fires and the hardcoded
 expectation fails. Fixed to assert against whatever
 `process.env.SUPABASE_SECRET_KEY` actually is at test time instead of a
 hardcoded literal.
+
+## ADR-018: Note on ADR numbering across parallel branches
+
+**Context**: `milestone/02-sentry` (Sentry error monitoring, PR #2, not yet
+merged to `main` as of this milestone's implementation) independently added
+ADR-018 through ADR-020 on its own branch. This milestone (Users, Teams,
+Roles) branches from `main`, which does not yet include those entries, so
+this file's next available number here is also ADR-018.
+**Decision**: continue numbering from ADR-018 on this branch rather than
+guessing at a number that anticipates the other branch's eventual merge.
+Whichever PR merges second will have a real (harmless) numbering
+collision in this log — the fix is a trivial renumber-on-merge of one
+branch's entries, not a blocker for either branch's own work.
+**Status**: adopted; flagged for whoever merges the second of the two PRs.
+
+## ADR-019: Invitation flow uses the Supabase Auth Admin API, attaching an already-registered email instead of re-inviting
+
+**Context**: spec §10 requires "invitation based registration." Milestone 1
+gave `organization_users.user_id` a `not null` foreign key to `auth.users`,
+so a person cannot be invited before their `auth.users` row exists — but
+creating that row (and sending the invite email) requires the Supabase Auth
+Admin API, which only the service-role key can call; the publishable-key
+client cannot create auth users at all. A second wrinkle: someone already
+registered (e.g. already a member of a different organization) must be
+attachable to a new organization without receiving a duplicate "create your
+password" email.
+**Decision**: `modules/users/invite-user.ts` calls
+`serviceRole.auth.admin.inviteUserByEmail()`. If that fails because the
+email is already registered (`error.code === "email_exists"` or an
+"already registered" message — the Admin API does not return a special
+"success but existing" response, only an error we have to interpret), a
+narrow `SECURITY DEFINER` SQL function, `find_auth_user_id_by_email`,
+resolves the existing `auth.users.id` (which is otherwise unreachable via
+PostgREST) so the module can attach that person's existing account to the
+new organization via a normal `organization_users` insert (`status =
+'invited'`), with no duplicate email sent. This is the first module allowed
+to import the service-role client — see ADR-020.
+**Status**: adopted. Known limitation: the "already registered" detection
+depends on matching the Admin API's current error shape/message, which is
+not contractually guaranteed by the SDK across versions — flagged here so a
+future SDK upgrade that changes this error shape is easy to trace back to
+this decision if the "attach existing user" path silently stops working.
+
+## ADR-020: Service-role Supabase client introduced, confined by an ESLint import-boundary rule
+
+**Context**: Milestone 1's `docs/security-model.md` §3 anticipated this
+moment: "an ESLint import-boundary rule enforces this at build time," but
+no such rule existed yet in Milestone 1 because no service-role client
+existed yet to restrict. ADR-019's invitation flow is the first real
+consumer.
+**Decision**: added `src/lib/supabase/service-role.ts` (the client itself)
+and an `eslint.config.mjs` `no-restricted-imports` rule that blocks
+importing it from anywhere by default, with a per-directory override
+re-enabling it only for `src/modules/users/**` and `src/modules/imports/**`
+(the bulk-import module also needs to invite users). The public lead-intake
+route (a later milestone) is deliberately never on this allow-list. Every
+caller of the service-role client is still gated by an explicit
+`requireOrgAdminContext` check performed _before_ the client is touched, so
+RLS bypass is not the only line of defense (docs/security-model.md §1).
+**Status**: adopted.
+
+## ADR-021: RLS helper functions run `SECURITY DEFINER` to avoid self-referencing policy recursion
+
+**Context**: Milestone 2's role-scoped RLS policies need a "does this user
+manage this team?" check (`is_permitted_team_manager`) used inside
+`team_users`' own SELECT/INSERT/UPDATE/DELETE policies — a table checking a
+condition about itself, inside its own policy. A naive `SECURITY INVOKER`
+helper function would itself be subject to `team_users`' RLS when it runs
+its internal query, which is the same policy currently being evaluated —
+a well-known Postgres/Supabase RLS recursion hazard.
+**Decision**: `is_active_org_member`, `is_org_admin`, and
+`is_permitted_team_manager` are all `SECURITY DEFINER` with `search_path`
+pinned to `public`, following the same audited-narrow-function pattern as
+Milestone 1's `bootstrap_organization`. Each takes only `auth.uid()` (never
+attacker-controlled identity) as its implicit input, so running as definer
+does not introduce a privilege-escalation path — it only lets the function
+see all rows of the table it checks, then apply the same
+`auth.uid()`-scoped filter that RLS would have applied anyway. This is the
+standard, documented Supabase pattern for this exact problem.
+**Status**: adopted.
+
+## ADR-022: CSV bulk user import: all-or-nothing is a submission decision, not a cross-system transaction
+
+**Context**: spec §14: "Invalid imports must not partially create records
+unless the administrator explicitly chooses partial processing." Creating a
+user requires both a Supabase Auth Admin API call (not part of any SQL
+transaction) and one or more Postgres writes (`organization_users`,
+optionally `team_users`) — there is no single transaction that can span
+both an external HTTP-based Auth API and Postgres, so true atomicity across
+"auth account created" + "org membership created" for an entire batch is
+not achievable the way a pure-SQL function (e.g. Milestone 1's
+`bootstrap_organization`) guarantees it for a single row.
+**Decision**: implement the specific guarantee spec §14 and this
+milestone's tests actually require: when `allow_partial` is false and any
+row fails validation, `confirmImport` refuses to create _any_ records at
+all — it never begins the creation loop. This is a pre-flight decision, not
+a rollback, and is fully deterministic and testable without a database
+(`tests/unit/imports/confirm-import.test.ts`). When `allow_partial` is
+true, valid rows are created one at a time and a mid-batch external API
+failure on one row does not roll back rows already created for that batch —
+this is a known, documented limitation of mixing an external Auth API with
+database writes, not a gap in the "abort on invalid, unless partial is
+explicitly chosen" guarantee itself.
+**Status**: adopted; revisit if a future milestone needs stronger
+per-row-failure guarantees during partial-mode imports (e.g. a
+saga/compensation pattern), which is out of scope for Phase 1.
+
+## ADR-023: Invitation acceptance needs its own narrow RLS policy + trigger, not the existing org_admin-only UPDATE policy
+
+**Context**: Milestone 1's only UPDATE policy on `organization_users`
+requires the caller to be an `org_admin` — correct for role/status changes
+made by an administrator, but it means an _invited_ (not yet active) user
+has no way to accept their own invitation (flip their own row from
+`invited` to `active`), since they aren't an admin and RLS would silently
+exclude their own row from the UPDATE.
+**Decision**: added a second, permissive UPDATE policy,
+`organization_users_accept_own_invitation`, that lets a caller touch only
+their own row and only when its current status is `invited`. A
+`BEFORE UPDATE` trigger, `enforce_self_accept_invitation_only`, then
+constrains what a _non-admin_ caller's update through that door may
+actually change: the transition must be exactly `invited -> active`, and
+`role`/`invited_by_user_id` must be unchanged — closing the gap a bare RLS
+`WITH CHECK` can't close on its own (RLS can't compare a column's old vs.
+new value directly; a trigger can). An `org_admin`'s own updates are
+unaffected (the trigger no-ops for them, since they're already fully
+authorized by the existing `organization_users_update_org_admin` policy).
+**Status**: adopted.
