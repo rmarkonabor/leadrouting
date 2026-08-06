@@ -48,28 +48,15 @@ as $$
   );
 $$;
 
-create or replace function public.is_permitted_team_manager(p_team_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.team_users tu
-    where tu.team_id = p_team_id
-      and tu.user_id = auth.uid()
-      and tu.is_manager = true
-  );
-$$;
-
 revoke all on function public.is_active_org_member(uuid) from public, anon;
 revoke all on function public.is_org_admin(uuid) from public, anon;
-revoke all on function public.is_permitted_team_manager(uuid) from public, anon;
 grant execute on function public.is_active_org_member(uuid) to authenticated;
 grant execute on function public.is_org_admin(uuid) to authenticated;
-grant execute on function public.is_permitted_team_manager(uuid) to authenticated;
+
+-- is_permitted_team_manager is defined further below, immediately after the
+-- team_users table it queries — a SQL-language function is validated against
+-- existing tables at CREATE FUNCTION time, so it cannot be created before
+-- its referenced table exists.
 
 -- Resolves an existing auth.users id by email, so the invite flow can attach
 -- an already-registered person to a second organization instead of issuing a
@@ -236,6 +223,30 @@ create trigger team_users_assert_same_org
   before insert or update on public.team_users
   for each row
   execute function public.assert_team_users_same_org();
+
+-- Defined here (not with the other RLS helpers above) because a
+-- SQL-language function is validated against existing tables at CREATE
+-- FUNCTION time, and team_users must exist first. SECURITY DEFINER for the
+-- same self-referencing-RLS-recursion reason as the other helpers — see
+-- docs/decisions.md ADR-023.
+create or replace function public.is_permitted_team_manager(p_team_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.team_users tu
+    where tu.team_id = p_team_id
+      and tu.user_id = auth.uid()
+      and tu.is_manager = true
+  );
+$$;
+
+revoke all on function public.is_permitted_team_manager(uuid) from public, anon;
+grant execute on function public.is_permitted_team_manager(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- user_availability
