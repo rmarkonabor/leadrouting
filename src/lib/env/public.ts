@@ -13,6 +13,11 @@ const publicEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.url(),
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
   NEXT_PUBLIC_APP_URL: z.url(),
+  // Optional: Sentry is not required to run the app (docs/decisions.md
+  // ADR-013/ADR-024). Read here (not lib/env/server) because the browser
+  // Sentry init (src/instrumentation-client.ts) needs it, and NEXT_PUBLIC_*
+  // vars are inlined by Next.js wherever they're statically referenced.
+  NEXT_PUBLIC_SENTRY_DSN: z.url().optional(),
 });
 
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
@@ -23,6 +28,7 @@ function loadPublicEnv(): PublicEnv {
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
   });
 
   if (!result.success) {

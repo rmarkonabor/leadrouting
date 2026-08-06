@@ -27,6 +27,14 @@ middleware file convention. RLS/tenant-isolation tests were written
 the implementation sandbox (no Docker daemon available for `supabase
 start`) — see that test file's companion README for how to run them.
 
+**Naming note**: the Sentry work deferred here was completed on a
+dedicated `milestone/02-sentry` branch (see `docs/decisions.md`
+ADR-024–ADR-026) — a separate, out-of-band unit of work, not this
+document's own "Milestone 2 — Users and Teams" below. Branch numbering and
+this plan's milestone numbering are tracked independently; check
+`docs/decisions.md` for what a given `milestone/0N-*` branch actually
+contains rather than assuming it matches this document's `N`.
+
 **1. Objective**
 Stand up the application skeleton, tenant identity model, authentication,
 and the tenant-isolation guarantees every later milestone depends on.

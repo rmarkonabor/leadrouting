@@ -195,27 +195,47 @@ invoked.
 
 ## 7. Sentry sanitization (spec §47)
 
-`lib/sentry/sanitize.ts` exports one `beforeSend` used identically by
-`sentry.client.config.ts`, `sentry.server.config.ts`, and
-`sentry.edge.config.ts`. It:
+Implemented in Milestone 2 (see `docs/decisions.md` ADR-024 through
+ADR-026). `src/lib/sentry/sanitize.ts` exports one `sentryBeforeSend` used
+identically by `src/instrumentation-client.ts` (browser) and
+`src/instrumentation.ts` (Node and Edge runtimes — the current,
+Turbopack-compatible init locations; there is no separate
+`sentry.server.config.ts`/`sentry.edge.config.ts`). It:
 
-- Drops `sendDefaultPii` (set `false`), keeps Session Replay disabled.
-- Strips: names, emails, phones, addresses, form messages, consent text,
-  raw/mapped lead payloads, custom variable values, cookies, all
-  authorization/token headers, Supabase secret keys, CRM credentials,
-  Sentry auth tokens — by allow-listing the fields permitted to remain
-  (see spec §47's identifier list: `organization_id`, `lead_id`,
+- Sets `sendDefaultPii: false` and never adds a Replay integration (Session
+  Replay stays disabled for Phase 1).
+- Strips: `event.user` entirely, `request.cookies`, `request.data` (the
+  request body — where original lead payloads/form messages/custom
+  variable values would appear), any request header matching
+  `/authorization|cookie|token|secret|api[-_]?key/i`, `event.extra`
+  entirely, and any `event.contexts`/breadcrumb data not on a small
+  allow-list of Sentry's own technical context names.
+- Keeps only the allow-listed tag keys in
+  `src/lib/sentry/allowed-tags.ts` (`organization_id`, `lead_id`,
   `assignment_id`, `routing_flow_id`, `routing_flow_version_id`,
-  `source_id`, `job_id`, `integration_provider`, `environment`,
-  `release`) and deleting everything else from `event.extra`,
-  `event.contexts`, breadcrumbs, and request data.
-- Downgrades expected Zod validation errors to breadcrumbs/logs, not
-  captured exceptions (spec §47's "expected validation errors must not be
-  reported as Sentry exceptions").
-- Applies identically to error captures from Server Actions, route
-  handlers, Supabase Edge Functions, and queue/cron consumers — all of
-  which import the same `lib/sentry` module rather than configuring Sentry
-  ad hoc.
+  `source_id`, `job_id`, `integration_provider`) — everything else in
+  `event.tags` is dropped. `environment`/`release` are Sentry's own
+  top-level event fields, not custom tags, and are unaffected.
+- Regex-scrubs exception/breadcrumb message text for secret-shaped
+  substrings (Bearer tokens, JWT-shaped strings covering Supabase
+  secret/access/refresh tokens, vendor API-key prefixes) as defense in
+  depth — the primary control is still never embedding a secret in a
+  thrown error message in the first place.
+- Drops (returns `null` for) events whose original exception is a
+  `ZodError` or an `AppError` with code `invalid_input` — spec §47's
+  "expected validation errors must not be reported as Sentry exceptions."
+  Every other error, including `AppError("internal_error")`, is still
+  reported.
+- Applies identically everywhere because Server Components, Route
+  Handlers, and Server Actions all report through one shared path: Next's
+  official `onRequestError` hook (`export const onRequestError =
+Sentry.captureRequestError` in `src/instrumentation.ts`), not per-route
+  manual wrapping.
+
+Application code attaches diagnostic identifiers only through
+`setSentryDiagnosticContext()` (`src/lib/sentry/diagnostics.ts`), which is
+typed to accept only the allow-listed keys — the sanitizer re-enforces the
+same allow-list at runtime as a backstop.
 
 The same allow-list discipline applies to `lib/logging` — application logs
 never include lead PII, matching CLAUDE.md rule 18.

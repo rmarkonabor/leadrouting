@@ -14,7 +14,10 @@ import { z } from "zod";
  */
 const serverEnvSchema = z.object({
   SUPABASE_SECRET_KEY: z.string().min(1),
-  NEXT_PUBLIC_SENTRY_DSN: z.url().optional(),
+  // NEXT_PUBLIC_SENTRY_DSN lives in lib/env/public.ts — it's a client-visible
+  // var needed by the browser Sentry init, read from there to avoid two
+  // sources of truth. SENTRY_AUTH_TOKEN/ORG/PROJECT below are build-time-only
+  // (next.config.ts source map upload) and must never reach the browser.
   SENTRY_AUTH_TOKEN: z.string().optional(),
   SENTRY_ORG: z.string().optional(),
   SENTRY_PROJECT: z.string().optional(),

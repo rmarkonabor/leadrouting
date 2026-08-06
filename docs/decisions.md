@@ -297,17 +297,16 @@ hardcoded literal.
 
 ## ADR-018: Note on ADR numbering across parallel branches
 
-**Context**: `milestone/02-sentry` (Sentry error monitoring, PR #2, not yet
-merged to `main` as of this milestone's implementation) independently added
-ADR-018 through ADR-020 on its own branch. This milestone (Users, Teams,
-Roles) branches from `main`, which does not yet include those entries, so
-this file's next available number here is also ADR-018.
-**Decision**: continue numbering from ADR-018 on this branch rather than
-guessing at a number that anticipates the other branch's eventual merge.
-Whichever PR merges second will have a real (harmless) numbering
-collision in this log — the fix is a trivial renumber-on-merge of one
-branch's entries, not a blocker for either branch's own work.
-**Status**: adopted; flagged for whoever merges the second of the two PRs.
+**Context**: `milestone/02-sentry` (Sentry error monitoring, PR #2) and
+`milestone/02-users-teams-roles` (Users/Teams/Roles, PR #3) were developed
+in parallel from the same `main` commit, and both independently claimed
+ADR-018 onward. PR #3 merged first.
+**Decision**: keep PR #3's ADR-018–ADR-023 numbers as merged (they're
+already referenced from `docs/implementation-plan.md`'s Milestone 2 status
+note); renumber this branch's three Sentry ADRs to ADR-024–ADR-026 when
+merging, rather than the reverse.
+**Status**: adopted — this is the "trivial renumber-on-merge" resolution
+anticipated by this same ADR when it was first written on the other branch.
 
 ## ADR-019: Invitation flow uses the Supabase Auth Admin API, attaching an already-registered email instead of re-inviting
 
@@ -420,4 +419,83 @@ actually change: the transition must be exactly `invited -> active`, and
 new value directly; a trigger can). An `org_admin`'s own updates are
 unaffected (the trigger no-ops for them, since they're already fully
 authorized by the existing `organization_users_update_org_admin` policy).
+**Status**: adopted.
+
+## ADR-024: Sentry hand-authored following current `@sentry/nextjs` conventions — wizard could not run non-interactively
+
+**Context**: Milestone 2's kickoff instructed running (or preparing to run)
+`npx @sentry/wizard@latest -i nextjs`. The wizard was attempted with
+`--non-interactive --skip-connect --disable-telemetry --ignore-git-changes
+--saas` (the flags it documents for "agentic setup"), but it still calls
+`askHasSentryAccount()` internally and crashed with `ERR_TTY_INIT_FAILED`
+in this non-interactive sandbox before writing any files — confirmed via
+`git status` showing zero file changes from the attempt. No Sentry account,
+org, or project is available in this environment either, so there was no
+DSN/org/project to connect to regardless.
+**Decision**: hand-author the exact file layout the wizard would produce
+for the _current_ `@sentry/nextjs` major version (10.x) on Next.js 16 with
+Turbopack, verified against the installed package's own type definitions
+and deprecation warnings rather than guessing from older docs:
+
+- `src/instrumentation-client.ts` (not the older `sentry.client.config.ts`
+  convention — that file is only auto-detected by Sentry's webpack config
+  path, which doesn't run under Turbopack) for the browser init, exporting
+  `onRouterTransitionStart` as the SDK requires.
+- `src/instrumentation.ts` (Next's own official instrumentation hook, which
+  already existed for env validation — see ADR-015) extended with
+  `Sentry.init(...)` per runtime (`NEXT_RUNTIME === "nodejs" | "edge"`) and
+  `export const onRequestError = Sentry.captureRequestError;`. This one
+  hook is what satisfies "Server error monitoring," "Route Handler error
+  monitoring," and "Server Action error monitoring" — Next.js calls it for
+  all three surfaces, so no per-route manual wrapping is needed.
+- `src/app/global-error.tsx` for React global error capture, per the
+  Next.js App Router convention (must render its own `<html>`/`<body>`).
+- `next.config.ts` wrapped with `withSentryConfig`, using
+  `org`/`project`/`authToken` from `process.env` directly (server/build-
+  only, never `NEXT_PUBLIC_*`) and `widenClientFileUpload: true`. Confirmed
+  via the installed package's type definitions that Turbopack source map
+  upload is a first-class, supported path (`after-production-compile-
+turbopack`), not a webpack-only feature — `disableLogger` and
+  `automaticVercelMonitors` were deliberately left out after the build
+  logged them as "not supported with Turbopack" deprecation warnings.
+  **Status**: adopted. If a real Sentry account becomes available later, the
+  wizard can still be run against this codebase — `--ignore-git-changes`
+  would let it detect and skip files that already match its own conventions,
+  or a developer can just fill in `.env.local`/Vercel env vars against what's
+  already here without re-running it at all.
+
+## ADR-025: `beforeSend` drops ZodError and `AppError("invalid_input")` events instead of reporting them
+
+**Context**: spec §47: "Expected validation errors must not be reported as
+Sentry exceptions." The codebase has two shapes of validation failure: a
+raw `ZodError` (from a `.parse()` call) and an `AppError` with code
+`invalid_input` (the module-boundary wrapper used everywhere else, per
+`docs/api-specification.md` §4).
+**Decision**: `sentryBeforeSend` inspects `hint.originalException` and
+returns `null` (dropping the event entirely, not just downgrading its
+level) for both shapes. Every other `AppError` code (including
+`internal_error`) and any other exception type is still reported — only
+the two known "this is normal user input, not a bug" shapes are
+suppressed.
+**Status**: adopted.
+
+## ADR-026: Sentry test routes gated on "not a real Vercel Production deployment," not on Node's `NODE_ENV`
+
+**Context**: spec §47 asks for "Development only test routes," but the
+Milestone 2 verification steps explicitly require triggering both test
+errors on a deployed Vercel **Preview** build — and Vercel Preview builds
+run with `NODE_ENV=production` internally, same as a real Production
+build. A literal `NODE_ENV !== "production"` gate would 404 the test
+routes on the exact environment they're meant to be exercised on.
+**Decision**: `areSentryTestRoutesEnabled()` (`src/lib/sentry/test-
+routes.ts`) instead checks Vercel's `VERCEL_ENV`, which distinguishes
+`preview` from `production` even though both build with
+`NODE_ENV=production`: enabled unless `VERCEL_ENV === "production"`, or
+unless it's a `NODE_ENV=production` build with no `VERCEL_ENV` at all
+(e.g. a local `next build && next start`, treated as production-like and
+blocked as the safe default). Confirmed locally that `next build` (NODE_ENV
+production, no VERCEL_ENV) 404s both routes, while `next dev` serves them
+normally. Satisfies the literal "remove or protect the test routes before
+production" instruction via the "protect" option — no manual removal step
+is needed before a real Production deploy.
 **Status**: adopted.
