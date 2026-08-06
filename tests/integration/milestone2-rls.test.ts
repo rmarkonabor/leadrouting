@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "pg";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -75,6 +75,22 @@ describe.skipIf(!TEST_DATABASE_URL)(
     afterAll(async () => {
       await client.query("rollback");
       await client.end();
+    });
+
+    // Some tests below deliberately trigger a Postgres error (RLS/trigger
+    // rejection) via `.rejects.toThrow()`. In Postgres, any error inside a
+    // transaction aborts the *entire* transaction until a ROLLBACK — since
+    // every test here shares one transaction (rolled back only in
+    // afterAll), a rejected query would otherwise poison every subsequent
+    // test with "current transaction is aborted." A per-test SAVEPOINT,
+    // rolled back after each test regardless of outcome, isolates each
+    // test's queries (including any deliberate errors) from the others.
+    beforeEach(async () => {
+      await client.query("savepoint test_savepoint");
+    });
+
+    afterEach(async () => {
+      await client.query("rollback to savepoint test_savepoint");
     });
 
     async function asUser<T>(userId: string, fn: () => Promise<T>): Promise<T> {

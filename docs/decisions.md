@@ -670,3 +670,194 @@ detection functions (`modules/territories/conflict-detection.ts`) to
 populate its aggregate counts later, without duplicating the detection
 logic.
 **Status**: adopted.
+
+## ADR-037: Routing engine logic lives in PL/pgSQL, with an equivalent pure-TypeScript module set kept only as a testable specification
+
+**Context**: CLAUDE.md rule 21 requires `route_lead`/`accept_assignment`/
+`decline_assignment`/`expire_assignment`/`reassign_lead` to run as
+single-transaction database functions. But the deeper reason this has to be
+true here specifically (not just a style preference) is the caller: Lead
+intake (`record_lead_submission`, Milestone 3) is invoked by the `anon`
+Postgres role with no session, and the spec requires a lead to be routed
+immediately on submission. `anon` has no RLS read access to
+`organization_users`, `user_availability`, `user_assignment_settings`,
+`team_users`, `territories`, or any other table condition/eligibility
+evaluation needs — a TypeScript orchestration layer issuing ordinary
+RLS-scoped Supabase queries could not compute a routing decision for that
+caller at all, session-less or not.
+**Decision**: condition evaluation, eligibility filtering, territory
+matching, and assignment-algorithm selection are implemented in PL/pgSQL
+(`evaluate_routing_condition`, `compute_candidate_eligibility`,
+`compute_routing_decision`, etc.), all `SECURITY DEFINER` so they can read
+across the tables they need regardless of caller role, reachable only via
+the narrow `route_lead`/`simulate_routing`/etc. entry points (never granted
+to `anon` directly — `anon` reaches routing only transitively through
+`record_lead_submission`'s internal call). A parallel, behaviorally
+equivalent set of pure TypeScript modules (`src/modules/routing/*.ts`) was
+still built, each mirroring one SQL piece 1:1 (`evaluate-conditions.ts` ↔
+`evaluate_routing_condition`, `eligibility.ts` ↔
+`compute_candidate_eligibility`, `assignment-algorithms.ts` ↔ the
+direct/round-robin/weighted/fallback branches in `compute_routing_decision`,
+`working-hours.ts` ↔ `is_within_working_hours`). These TS modules are not a
+second production code path — nothing in the app calls them for a live
+routing decision — they exist purely as a fast, dependency-free,
+always-runnable specification of the same rules, unit-tested without a
+database. **The SQL is the single source of truth; the TypeScript is
+documentation-as-tests.** Any future change to a rule must be made in both
+places, and a divergence between them is a bug in the TypeScript mirror,
+not a legitimate alternate behavior.
+**Status**: adopted.
+
+## ADR-038: Locking and transaction decisions in the routing engine
+
+**Context**: CLAUDE.md rule 21 and the Milestone 5 kickoff both require the
+routing transaction to be deterministic, transactional, and safe under
+concurrent requests, with round-robin state updated atomically and no more
+than one active assignment per lead ever created. This ADR is the explicit
+record of every locking/transaction decision made to satisfy that,
+requested by name in the kickoff ("document all locking and transaction
+decisions").
+**Decision**, by function:
+
+- **`route_lead(p_lead_id)`**: takes `SELECT ... FOR UPDATE` on the `leads`
+  row first, before anything else, purely to serialize two concurrent
+  `route_lead` calls for the _same lead_ (e.g. a retried intake request
+  racing the routing hook). It then re-checks for an existing active
+  assignment (`status in ('pending','notified','viewed')`) and returns
+  `{outcome: 'already_assigned', ...}` immediately if found — this makes
+  `route_lead` idempotent under real concurrency, not just by convention.
+- **Eligibility computation** (`build_lead_routing_context`,
+  `compute_candidate_eligibility`, condition evaluation) takes **no locks**.
+  These are all plain reads across `organization_users`,
+  `user_availability`, `user_assignment_settings`, `team_users`,
+  `territories`, past `assignments` rows, etc. None of these rows are being
+  concurrently mutated by another routing decision in a way that would
+  produce an incorrect _eligibility_ result if read without a lock — worst
+  case, a concurrent capacity change is observed slightly early or late,
+  which is acceptable (capacity limits are a soft routing preference, not a
+  correctness invariant the way "at most one active assignment" is).
+  Locking every table involved in eligibility would make the transaction
+  far more contention-prone for no correctness benefit.
+- **`routing_state` (round-robin/weighted-round-robin cursor)**: locked with
+  `SELECT ... FOR UPDATE` at the single moment a real assignment is about to
+  be made — after eligibility and rule matching are already resolved, right
+  before the algorithm picks a user and the cursor advances. This is the
+  narrowest possible lock window: two concurrent `route_lead` calls for
+  _different_ leads landing on the same team's round robin will serialize
+  only for the brief read-modify-write of the cursor, not for the entire
+  eligibility computation. The cursor update
+  (`on conflict (organization_id, team_id, routing_flow_id) do update set
+rotation_cursor = rotation_cursor + 1, last_assigned_user_id = ...`) is a
+  single atomic upsert inside the same transaction as the lock.
+- **Duplicate-assignment prevention is unconditional, not merely
+  lock-derived**: a partial unique index,
+  `assignments_one_active_per_lead_idx on assignments(lead_id) where status
+in ('pending','notified','viewed')`, is the actual database-level
+  guarantee — belt-and-suspenders on top of the `leads` row lock and the
+  pre-insert existence check. `route_lead`'s insert is wrapped in
+  `exception when unique_violation`, which re-selects and returns the
+  assignment the _other_ concurrent transaction actually created, rather
+  than raising an error to the caller. This means the single-active-
+  assignment invariant holds even if the `leads` row lock were ever
+  bypassed or a future code path forgot to take it — the constraint does
+  not depend on any particular caller locking correctly.
+- **`simulate_routing`** takes no locks and performs no writes: it calls the
+  same `compute_routing_decision(p_lead_id, p_lock_state => false)` core as
+  `route_lead`, which skips the `routing_state` lock entirely and returns
+  the decision without touching `assignments`/`activities`/
+  `manual_review_items`/`routing_state`. Simulator/live parity is
+  guaranteed by construction (one shared function, one boolean flag).
+- **`publish_routing_flow`**: no explicit row lock; it runs as a single
+  `insert ... select` snapshot of the flow's current rules into
+  `routing_flow_versions`/`routing_rule_versions` followed by one `update`
+  on `routing_flows`, all in one statement-level-atomic transaction.
+  Concurrent publishes of the _same_ flow are not a scenario the spec
+  requires protecting against (publishing is an infrequent, single-admin
+  admin action); if it did happen, Postgres's normal MVCC would still
+  produce two internally-consistent versions, just with an unspecified
+  "last write wins" ordering on `current_version_id` — acceptable, and
+  irrelevant to lead-routing correctness since published versions are
+  immutable once created regardless of ordering.
+  **Status**: adopted. Verified under real concurrent load (30 leads routed
+  concurrently against a 3-agent round robin) against a local Postgres 16
+  instance, producing an exact 10/10/10 distribution and zero duplicate
+  active assignments — see the Milestone 5 section of
+  `docs/implementation-plan.md`.
+
+## ADR-039: `compute_routing_decision` uses explicit scalar variables instead of a `record`, after a real not-yet-assigned-record crash
+
+**Context**: real-execution testing (see ADR-038) against a local Postgres
+instance surfaced a genuine bug: `compute_routing_decision` originally
+declared `v_matched_rule record` and assigned it inside the rule-evaluation
+loop, then branched on `v_matched_rule.id is not null` afterward. When a
+routing flow's published version has zero rules (a valid, real scenario —
+e.g. a freshly published empty flow), the loop body never runs, so
+`v_matched_rule` is never assigned, and accessing `.id` on an unassigned
+`record` raises `record "v_matched_rule" is not assigned yet`, crashing
+both `route_lead` and `simulate_routing` for any such flow.
+**Decision**: replaced the single `record` variable with three explicit
+nullable scalars (`v_matched_rule_id uuid`, `v_matched_rule_action jsonb`,
+`v_matched_rule_recipient_requirements jsonb`), each defaulting to `null`
+and assigned individually inside the loop. A `null` matched-rule id now
+correctly and safely falls through to the manual-review-fallback path
+(`no_matching_rule`) instead of crashing. Re-verified after the fix: a
+zero-rule flow produces `{"outcome": "manual_review", "manualReviewReason":
+"no_matching_rule", ...}` and a corresponding `manual_review_items` row, as
+intended.
+**Status**: adopted.
+
+## ADR-040: `organization_users`/`organizations` RLS policies fixed to close a self-referencing-policy infinite recursion, discovered only once real Postgres execution became available
+
+**Context**: Milestone 5's real-database verification work (ADR-037/038)
+included, as due diligence, actually running the pre-existing Milestone
+1-4 RLS integration test suites against a real local Postgres for the
+first time ever — every earlier session had `TEST_DATABASE_URL` unset, so
+`describe.skipIf(!TEST_DATABASE_URL)` silently skipped all of them,
+meaning these policies had never actually been executed by any test since
+Milestone 1. Doing so surfaced a real, previously undetectable bug: the
+foundation migration's `organizations_select_active_member`,
+`organizations_update_org_admin`, `organization_users_select_fellow_member`,
+and `organization_users_update_org_admin` policies each inline a raw
+`exists (select 1 from organization_users ...)` subquery, predating the
+`is_active_org_member()`/`is_org_admin()` `SECURITY DEFINER` helpers ADR-021
+introduced in Milestone 2 specifically to avoid this. Because
+`organization_users` has RLS enabled, evaluating that inline subquery
+re-invokes `organization_users`' own SELECT policy — which contains the
+same subquery — and Postgres correctly detects this as unbounded
+recursion: `infinite recursion detected in policy for relation
+"organization_users"`. Reproduced directly via `psql`: any authenticated
+read of `organizations`, and any `UPDATE` attempt on `organization_users`
+(including a non-admin agent's own no-op self-promotion attempt, which
+should simply affect zero rows) both threw this error instead of behaving
+correctly.
+**Decision**: added
+`20260806190000_fix_organization_users_rls_recursion.sql`, which drops and
+recreates all four affected policies to call `is_active_org_member(...)`/
+`is_org_admin(...)` instead of inlining the subquery — exactly the pattern
+Milestone 2 already uses for every other tenant table. Since `SECURITY
+DEFINER` functions run as their owning role (the migration-applying role,
+which owns these tables and therefore bypasses RLS on them), the helper's
+internal query no longer re-triggers the policy it's being called from,
+breaking the recursion. This is a new forward-only migration, not an edit
+to the already-shipped foundation migration, per CLAUDE.md rule 9. Two
+further issues turned up by the same testing pass were determined to be
+test-authoring bugs, not product bugs, and were fixed in the test files
+only: `rls-tenant-isolation.test.ts`'s "hides all organizations once the
+membership is inactive" test performed its status-change `UPDATE` with no
+`auth.uid()` set at all, which incorrectly tripped
+`enforce_self_accept_invitation_only` (ADR-023) — fixed by running that
+update as the fixture's real org_admin, and by briefly disabling the
+trigger only to restore fixture state afterward; and its
+"rejects bootstrap_organization()" test issued a plain follow-up
+`reset role` after a deliberately-rejected query, which cannot succeed once
+Postgres has aborted the transaction (`25P02`) — fixed by removing that
+line and relying on the per-test `SAVEPOINT` cleanup (see the comment atop
+`tests/integration/milestone2-rls.test.ts`) to restore role/transaction
+state instead.
+**Status**: adopted. All 18 pre-existing Milestone 1-4 integration tests
+plus the 6 new Milestone 5 tests pass together (24/24) against a freshly
+migrated local Postgres 16 database after this fix. Takeaway for future
+milestones: a table's _own_ RLS policies must go through the same
+`SECURITY DEFINER` helper functions as every other table's policies that
+reference it — inlining the check "just this once" is exactly how this
+kind of recursion hides until something finally executes it for real.
