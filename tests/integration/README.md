@@ -59,3 +59,22 @@ cannot administer (insert/update) any team, including one they manage
 read another organization's teams; an agent cannot change their own role;
 and `audit_logs` rows are insertable only as the real actor and readable
 only by `org_admin`.
+
+## Milestone 3 (`milestone3-rls.test.ts`)
+
+Same skip/run conditions, extended to Milestone 3's tables (`lead_sources`,
+`leads`) and functions (`resolve_lead_source`, `record_lead_submission`).
+Verifies: an `org_admin` cannot read another organization's lead sources or
+leads; `resolve_lead_source` resolves the correct organization for a valid
+token hash and returns no rows for an unknown one, callable as the `anon`
+role; `record_lead_submission` is idempotent — a repeat call with the same
+`(lead_source_id, idempotency_key)` returns the original result and creates
+no second lead.
+
+## Milestone 4 (`milestone4-rls.test.ts`)
+
+Same skip/run conditions, extended to Milestone 4's tables (`territories`,
+`lead_locations_internal`). Verifies: an active member cannot read another
+organization's territories but can read their own; an agent (non-admin)
+cannot create a territory; an `org_admin` cannot read another
+organization's `lead_locations_internal` rows.

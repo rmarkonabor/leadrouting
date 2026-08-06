@@ -288,6 +288,9 @@ pass.
 
 ## Milestone 4 — Territories
 
+**Status: implemented.** See docs/decisions.md ADR-032 through ADR-036.
+Migration: `supabase/migrations/20260806150000_milestone4_territories.sql`.
+
 **1. Objective**
 Add the geographic model routing will filter against: normalized internal
 location, territories of all seven types, and conflict detection.
