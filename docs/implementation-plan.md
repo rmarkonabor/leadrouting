@@ -29,7 +29,7 @@ start`) — see that test file's companion README for how to run them.
 
 **Naming note**: the Sentry work deferred here was completed on a
 dedicated `milestone/02-sentry` branch (see `docs/decisions.md`
-ADR-018–ADR-020) — a separate, out-of-band unit of work, not this
+ADR-024–ADR-026) — a separate, out-of-band unit of work, not this
 document's own "Milestone 2 — Users and Teams" below. Branch numbering and
 this plan's milestone numbering are tracked independently; check
 `docs/decisions.md` for what a given `milestone/0N-*` branch actually
@@ -107,6 +107,23 @@ test/build all pass.
 ---
 
 ## Milestone 2 — Users and Teams
+
+**Status: implemented on `milestone/02-users-teams-roles`.** See
+`docs/decisions.md` ADR-018–ADR-023 for deviations/decisions made during
+implementation: the invitation flow's use of the Supabase Auth Admin API and
+the resulting first introduction of the service-role client (confined by a
+new ESLint import-boundary rule); `SECURITY DEFINER` RLS helper functions to
+avoid self-referencing policy recursion on `team_users`; a documented
+limitation on cross-system (Auth API + Postgres) atomicity for CSV bulk
+import, with the actual required guarantee (no records created at all when
+invalid rows exist and partial processing isn't chosen) implemented and
+tested without needing a database; and a new narrow RLS
+policy/trigger pair letting an invited user accept their own invitation
+without being an org_admin. `audit_logs` (spec §46,
+`docs/database-schema.md` §17) is created in this milestone rather than a
+later one, since this milestone is the first to need it (invite/deactivate/
+role-change/team/import audit events per its own requirement 17). Leads and
+routing are explicitly out of scope, per this document's own boundary.
 
 **1. Objective**
 Give organizations the recipient model routing will later filter against:

@@ -97,7 +97,7 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm te
 ## 6. Sentry (error monitoring)
 
 Implemented in Milestone 2 — see `docs/decisions.md` ADR-013 and
-ADR-018–ADR-020, and `docs/security-model.md` §7 for the sanitizer policy.
+ADR-024–ADR-026, and `docs/security-model.md` §7 for the sanitizer policy.
 The app runs fine with no Sentry configured at all (`Sentry.init` no-ops
 without a DSN); these steps are only needed to actually see events in a
 Sentry project.

@@ -195,8 +195,8 @@ invoked.
 
 ## 7. Sentry sanitization (spec §47)
 
-Implemented in Milestone 2 (see `docs/decisions.md` ADR-018 through
-ADR-020). `src/lib/sentry/sanitize.ts` exports one `sentryBeforeSend` used
+Implemented in Milestone 2 (see `docs/decisions.md` ADR-024 through
+ADR-026). `src/lib/sentry/sanitize.ts` exports one `sentryBeforeSend` used
 identically by `src/instrumentation-client.ts` (browser) and
 `src/instrumentation.ts` (Node and Edge runtimes — the current,
 Turbopack-compatible init locations; there is no separate
