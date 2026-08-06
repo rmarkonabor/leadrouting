@@ -58,6 +58,18 @@ export type LeadDuplicateAction =
   "flag_and_continue" | "send_to_manual_review" | "update_existing" | "reject_submission";
 export type LeadDuplicateStatus = "unique" | "possible_duplicate" | "duplicate";
 
+export type TerritoryType =
+  | "country"
+  | "state_province"
+  | "county"
+  | "city"
+  | "neighborhood"
+  | "postal_code"
+  | "radius";
+export type TerritoryStatus = "active" | "inactive";
+export type LocationNormalizationStatus =
+  "confirmed" | "partial" | "ambiguous" | "invalid" | "not_provided";
+
 export interface Database {
   public: {
     Tables: {
@@ -722,6 +734,137 @@ export interface Database {
         }>;
         Relationships: [];
       };
+      territories: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
+          territory_type: TerritoryType;
+          country: string | null;
+          state_province: string | null;
+          county: string | null;
+          city: string | null;
+          neighborhood: string | null;
+          postal_code: string | null;
+          center_geography: unknown;
+          center_latitude: number | null;
+          center_longitude: number | null;
+          radius_distance: number | null;
+          priority: number;
+          status: TerritoryStatus;
+          effective_start_date: string | null;
+          effective_end_date: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          name: string;
+          territory_type: TerritoryType;
+          country?: string | null;
+          state_province?: string | null;
+          county?: string | null;
+          city?: string | null;
+          neighborhood?: string | null;
+          postal_code?: string | null;
+          center_geography?: unknown;
+          center_latitude?: number | null;
+          center_longitude?: number | null;
+          radius_distance?: number | null;
+          priority?: number;
+          status?: TerritoryStatus;
+          effective_start_date?: string | null;
+          effective_end_date?: string | null;
+        };
+        Update: Partial<{
+          name: string;
+          country: string | null;
+          state_province: string | null;
+          county: string | null;
+          city: string | null;
+          neighborhood: string | null;
+          postal_code: string | null;
+          priority: number;
+          status: TerritoryStatus;
+          effective_start_date: string | null;
+          effective_end_date: string | null;
+        }>;
+        Relationships: [];
+      };
+      territory_users: {
+        Row: {
+          id: string;
+          organization_id: string;
+          territory_id: string;
+          user_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          territory_id: string;
+          user_id: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      territory_teams: {
+        Row: {
+          id: string;
+          organization_id: string;
+          territory_id: string;
+          team_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          territory_id: string;
+          team_id: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      lead_locations_internal: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          normalized_address: string | null;
+          internal_latitude: number | null;
+          internal_longitude: number | null;
+          internal_geography: unknown;
+          geographic_identifier: string | null;
+          normalization_status: LocationNormalizationStatus;
+          normalization_provider: string | null;
+          normalization_metadata: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_id: string;
+          normalized_address?: string | null;
+          internal_latitude?: number | null;
+          internal_longitude?: number | null;
+          geographic_identifier?: string | null;
+          normalization_status?: LocationNormalizationStatus;
+          normalization_provider?: string | null;
+          normalization_metadata?: Record<string, unknown>;
+        };
+        Update: Partial<{
+          normalized_address: string | null;
+          internal_latitude: number | null;
+          internal_longitude: number | null;
+          geographic_identifier: string | null;
+          normalization_status: LocationNormalizationStatus;
+          normalization_provider: string | null;
+          normalization_metadata: Record<string, unknown>;
+        }>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -781,6 +924,10 @@ export interface Database {
           p_duplicate_action: LeadDuplicateAction | null;
         };
         Returns: { submission_log_id: string; lead_id: string | null }[];
+      };
+      is_postgis_available: {
+        Args: Record<string, never>;
+        Returns: boolean;
       };
     };
   };

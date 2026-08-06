@@ -584,3 +584,89 @@ Milestone 5/6 will widen the `assignment_status` check constraint (or
 convert it to an enum) as real states are introduced, in their own
 migrations.
 **Status**: adopted.
+
+## ADR-032: Radius territories gated by a live `is_postgis_available()` check, not an assumption
+
+**Context**: spec §23 requirement 7 explicitly asks for radius territories
+"only when PostGIS is correctly available" — a live capability guarantee,
+not a design-time assumption that Supabase always ships PostGIS (which it
+does, in practice, but the requirement's own wording asks for a runtime
+check regardless).
+**Decision**: `public.is_postgis_available()` (SQL, `stable`, checks
+`pg_extension`) is called by every code path that would create or match a
+radius territory — `createTerritory`, the territory-import validator, and
+(implicitly) any future routing/matching code — before allowing
+`territory_type = 'radius'`. The migration's own `create extension if not
+exists postgis` is wrapped in a `do $$ ... exception when others $$` block
+so a genuinely PostGIS-less environment doesn't abort the whole migration;
+it would simply leave `is_postgis_available()` returning false and radius
+territories unavailable, with the other six territory types unaffected.
+**Status**: adopted.
+
+## ADR-033: Territory radius stored three ways: `center_geography`, `center_latitude`, `center_longitude`
+
+**Context**: PostgREST returns PostGIS `geography` columns as WKB hex by
+default, which the application's pure-JS matching/conflict-detection
+functions (`modules/territories/match-territories.ts`) would have to parse
+for no functional benefit — those functions exist specifically so radius
+matching logic can be unit-tested without a live database or a WKB parser.
+**Decision**: `territories` carries `center_geography geography(Point,4326)`
+(for the real, database-backed `ST_DWithin` radius query, not yet wired
+into a routing path since routing doesn't exist until Milestone 5) _and_
+plain `center_latitude`/`center_longitude double precision` columns, kept
+in sync by application code at write time (both are set together in
+`createTerritory` and the territory-import confirm step — there is no
+separate trigger, since only one write path exists). The pure-JS
+`haversineDistanceMeters` matching function reads the plain columns; it is
+a documented, deliberate approximation runs of the same radius-membership
+question a live `ST_DWithin` query would answer, not a second source of
+truth for geometry.
+**Status**: adopted.
+
+## ADR-034: Territory overlap detection covers same-type exact matches and radius/radius circle intersection only
+
+**Context**: spec §24 item 1 asks for overlap warnings between "two active
+territories," without restricting this to same-type pairs. Detecting a
+real geographic overlap between, say, a `city` territory and a `radius`
+territory would require knowing the city's actual polygon boundary — data
+this milestone has no source for (spec §23 explicitly excludes "custom map
+polygon drawing").
+**Decision**: `detectOverlappingTerritories` only flags (a) two active
+territories of the _same_ exact-match type whose matching fields are
+identical (the concrete, always-determinable "accidental duplicate"
+case), and (b) two active radius territories whose circles geometrically
+intersect. Cross-type overlap (e.g. radius vs. city) is a documented,
+out-of-scope limitation for this milestone, consistent with the "where
+determinable" qualifier the spec itself applies to the related uncovered-
+area warning (§24 item 6).
+**Status**: adopted.
+
+## ADR-035: Uncovered-area detection runs against observed lead locations, not hypothetical areas
+
+**Context**: spec §24 item 6 asks for "an area has no configured fallback"
+warnings "where determinable" — Milestone 4 has no complete enumeration of
+"every possible area" to check coverage against, and inventing one (e.g.
+every postal code in a country) is out of scope and impractical.
+**Decision**: `detectUncoveredLocations` checks only postal codes/cities
+that actually appear on submitted `leads` rows (grouped and counted) against
+the active territory set, and reports any with zero matches as an
+`information`-severity warning. This is the literal, always-determinable
+reading of "where determinable" — coverage gaps are surfaced from real
+submission data, not predicted for areas that have never sent a lead.
+**Status**: adopted.
+
+## ADR-036: Territory conflict/coverage detection runs on demand, not on a Cron schedule
+
+**Context**: `docs/database-schema.md` §19 lists
+`territories_without_users_count`/`territory_conflicts_count` as
+`routing_health_metrics` columns, refreshed by Cron — but that table and
+its refresh job belong to Milestone 9 (Production Readiness/routing
+health), not this milestone.
+**Decision**: `runTerritoryConflictDetection` is a plain, on-demand
+org_admin server function (backing the Territories admin page's conflicts
+view), computed fresh on each call rather than cached or scheduled.
+Milestone 9's routing-health Cron job can call the same underlying pure
+detection functions (`modules/territories/conflict-detection.ts`) to
+populate its aggregate counts later, without duplicating the detection
+logic.
+**Status**: adopted.
