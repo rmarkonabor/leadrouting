@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "pg";
 import { createHash } from "node:crypto";
 
@@ -63,6 +63,14 @@ describe.skipIf(!TEST_DATABASE_URL)(
           hashToken(plaintextTokenB),
         ],
       );
+    });
+
+    beforeEach(async () => {
+      await client.query("savepoint test_savepoint");
+    });
+
+    afterEach(async () => {
+      await client.query("rollback to savepoint test_savepoint");
     });
 
     afterAll(async () => {

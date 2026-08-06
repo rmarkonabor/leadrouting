@@ -70,6 +70,42 @@ export type TerritoryStatus = "active" | "inactive";
 export type LocationNormalizationStatus =
   "confirmed" | "partial" | "ambiguous" | "invalid" | "not_provided";
 
+export type RoutingFlowStatus = "draft" | "active" | "inactive" | "archived";
+export type RoutingMatchType = "match_all" | "match_any";
+export type AssignmentStatusValue =
+  | "pending"
+  | "notified"
+  | "viewed"
+  | "accepted"
+  | "declined"
+  | "expired"
+  | "reassigned"
+  | "cancelled";
+export type AssignmentAlgorithmValue =
+  "direct" | "round_robin" | "weighted_round_robin" | "fallback" | "manual";
+export type AssignmentAttemptOutcome = "assigned" | "no_eligible_user" | "manual_review";
+export type ManualReviewReason =
+  | "no_matching_rule"
+  | "no_eligible_user"
+  | "missing_required_data"
+  | "missing_location"
+  | "ambiguous_location"
+  | "invalid_location"
+  | "duplicate_review"
+  | "all_users_at_capacity"
+  | "all_users_unavailable"
+  | "assignment_attempts_exhausted"
+  | "manual_request"
+  | "submission_mapping_error";
+export type ManualReviewStatus = "open" | "resolved" | "dismissed";
+export type RoutingActivityType =
+  | "assignment_created"
+  | "assignment_accepted"
+  | "assignment_declined"
+  | "assignment_expired"
+  | "assignment_reassigned"
+  | "manual_review_created";
+
 export interface Database {
   public: {
     Tables: {
@@ -865,6 +901,207 @@ export interface Database {
         }>;
         Relationships: [];
       };
+      routing_flows: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
+          description: string | null;
+          status: RoutingFlowStatus;
+          default_team_id: string | null;
+          default_user_id: string | null;
+          acceptance_deadline_minutes: number;
+          current_version_id: string | null;
+          created_at: string;
+          updated_at: string;
+          published_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          name: string;
+          description?: string | null;
+          status?: RoutingFlowStatus;
+          default_team_id?: string | null;
+          default_user_id?: string | null;
+          acceptance_deadline_minutes?: number;
+        };
+        Update: Partial<{
+          name: string;
+          description: string | null;
+          status: RoutingFlowStatus;
+          default_team_id: string | null;
+          default_user_id: string | null;
+          acceptance_deadline_minutes: number;
+        }>;
+        Relationships: [];
+      };
+      routing_flow_versions: {
+        Row: {
+          id: string;
+          organization_id: string;
+          routing_flow_id: string;
+          version_number: number;
+          published_at: string;
+          published_by_user_id: string;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      routing_rules: {
+        Row: {
+          id: string;
+          organization_id: string;
+          routing_flow_id: string;
+          name: string;
+          priority: number;
+          match_type: RoutingMatchType;
+          conditions: unknown[];
+          recipient_requirements: unknown[];
+          action: Record<string, unknown>;
+          stop_processing: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          routing_flow_id: string;
+          name: string;
+          priority?: number;
+          match_type?: RoutingMatchType;
+          conditions?: unknown[];
+          recipient_requirements?: unknown[];
+          action: Record<string, unknown>;
+          stop_processing?: boolean;
+        };
+        Update: Partial<{
+          name: string;
+          priority: number;
+          match_type: RoutingMatchType;
+          conditions: unknown[];
+          recipient_requirements: unknown[];
+          action: Record<string, unknown>;
+          stop_processing: boolean;
+        }>;
+        Relationships: [];
+      };
+      routing_rule_versions: {
+        Row: {
+          id: string;
+          organization_id: string;
+          routing_flow_version_id: string;
+          name: string;
+          priority: number;
+          match_type: RoutingMatchType;
+          conditions: unknown[];
+          recipient_requirements: unknown[];
+          action: Record<string, unknown>;
+          stop_processing: boolean;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      routing_state: {
+        Row: {
+          id: string;
+          organization_id: string;
+          team_id: string;
+          routing_flow_id: string;
+          last_assigned_user_id: string | null;
+          rotation_cursor: number;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      assignments: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          routing_flow_id: string | null;
+          routing_flow_version_id: string | null;
+          team_id: string | null;
+          user_id: string | null;
+          status: AssignmentStatusValue;
+          assignment_algorithm: AssignmentAlgorithmValue;
+          acceptance_deadline_at: string | null;
+          notified_at: string | null;
+          viewed_at: string | null;
+          responded_at: string | null;
+          explanation: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      assignment_attempts: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          assignment_id: string | null;
+          routing_rule_version_id: string | null;
+          eligible_team_ids: unknown[];
+          eligible_user_ids: unknown[];
+          excluded: unknown[];
+          selected_user_id: string | null;
+          outcome: AssignmentAttemptOutcome;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      manual_review_items: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          reason: ManualReviewReason;
+          status: ManualReviewStatus;
+          resolved_by_user_id: string | null;
+          resolved_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: Partial<{
+          status: ManualReviewStatus;
+          resolved_by_user_id: string | null;
+          resolved_at: string | null;
+        }>;
+        Relationships: [];
+      };
+      activities: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          activity_type: RoutingActivityType;
+          actor_user_id: string | null;
+          metadata: Record<string, unknown>;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          lead_id: string;
+          activity_type: RoutingActivityType;
+          actor_user_id?: string | null;
+          metadata?: Record<string, unknown>;
+        };
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -928,6 +1165,34 @@ export interface Database {
       is_postgis_available: {
         Args: Record<string, never>;
         Returns: boolean;
+      };
+      publish_routing_flow: {
+        Args: { p_routing_flow_id: string };
+        Returns: Database["public"]["Tables"]["routing_flow_versions"]["Row"];
+      };
+      route_lead: {
+        Args: { p_lead_id: string };
+        Returns: Record<string, unknown>;
+      };
+      simulate_routing: {
+        Args: { p_lead_id: string };
+        Returns: Record<string, unknown>;
+      };
+      accept_assignment: {
+        Args: { p_assignment_id: string };
+        Returns: Database["public"]["Tables"]["assignments"]["Row"];
+      };
+      decline_assignment: {
+        Args: { p_assignment_id: string };
+        Returns: Database["public"]["Tables"]["assignments"]["Row"];
+      };
+      expire_assignment: {
+        Args: { p_assignment_id: string };
+        Returns: Database["public"]["Tables"]["assignments"]["Row"];
+      };
+      reassign_lead: {
+        Args: { p_lead_id: string };
+        Returns: Record<string, unknown>;
       };
     };
   };

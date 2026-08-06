@@ -352,6 +352,12 @@ cross-organization territory access is blocked; all quality gates pass.
 
 ## Milestone 5 — Routing Engine
 
+**Status: implemented.** See docs/decisions.md ADR-037 through ADR-040.
+Migrations: `supabase/migrations/20260806180000_milestone5_routing_engine.sql`,
+`supabase/migrations/20260806190000_fix_organization_users_rls_recursion.sql`
+(a Milestone 1/2 RLS bug found and fixed during this milestone's real-database
+verification work, unrelated to routing itself — see ADR-040).
+
 **1. Objective**
 Build the deterministic, transaction-safe routing and assignment core —
 the highest-risk, most safety-critical part of the product.

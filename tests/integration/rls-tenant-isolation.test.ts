@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "pg";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -59,6 +59,17 @@ describe.skipIf(!TEST_DATABASE_URL)("tenant isolation (Row Level Security)", () 
     await client.end();
   });
 
+  // See tests/integration/milestone2-rls.test.ts for why: a deliberately
+  // rejected query aborts the shared transaction for every later test
+  // unless isolated behind a per-test SAVEPOINT.
+  beforeEach(async () => {
+    await client.query("savepoint test_savepoint");
+  });
+
+  afterEach(async () => {
+    await client.query("rollback to savepoint test_savepoint");
+  });
+
   async function queryAsUser(userId: string) {
     await client.query("set local role authenticated");
     await client.query(
@@ -79,20 +90,40 @@ describe.skipIf(!TEST_DATABASE_URL)("tenant isolation (Row Level Security)", () 
   });
 
   it("hides all organizations once the membership is inactive", async () => {
+    // Run as userA (an org_admin of orgA) so enforce_self_accept_invitation_only's
+    // is_org_admin() bypass applies — otherwise this update runs with
+    // auth.uid() = null (no jwt claims set) and the trigger mistakes it for
+    // a non-admin self-service status change, which it restricts to
+    // invited -> active only.
+    await client.query("set local role authenticated");
+    await client.query(
+      `select set_config('request.jwt.claims', json_build_object('sub', $1::text)::text, true)`,
+      [userAId],
+    );
     await client.query(
       `update public.organization_users set status = 'inactive'
        where organization_id = $1 and user_id = $2`,
       [orgAId, userAId],
     );
+    await client.query("reset role");
 
     const orgsForUserA = await queryAsUser(userAId);
     expect(orgsForUserA).toEqual([]);
 
-    // Restore for any subsequent test in this file.
+    // Restore for any subsequent test in this file. userA is now inactive,
+    // so it no longer passes enforce_self_accept_invitation_only's org_admin
+    // bypass check either — briefly disable the trigger to reset fixture
+    // state (test-only; the trigger is re-enabled immediately after).
+    await client.query(
+      "alter table public.organization_users disable trigger organization_users_enforce_self_accept",
+    );
     await client.query(
       `update public.organization_users set status = 'active'
        where organization_id = $1 and user_id = $2`,
       [orgAId, userAId],
+    );
+    await client.query(
+      "alter table public.organization_users enable trigger organization_users_enforce_self_accept",
     );
   });
 
@@ -104,6 +135,10 @@ describe.skipIf(!TEST_DATABASE_URL)("tenant isolation (Row Level Security)", () 
       client.query(`select public.bootstrap_organization('Rogue Org', 'rogue-org')`),
     ).rejects.toThrow(/not authenticated/);
 
-    await client.query("reset role");
+    // The rejected query above aborts the transaction (25P02) — a plain
+    // "reset role" here would itself be rejected. The per-test
+    // ROLLBACK TO SAVEPOINT in afterEach already restores the role (it was
+    // only ever SET LOCAL, scoped to this savepoint) and the transaction to
+    // a healthy state, so no explicit cleanup is needed or possible here.
   });
 });
