@@ -28,7 +28,7 @@ limitations" section.
    TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm test
    ```
 
-Note: vitest runs test *files* in parallel worker processes by default.
+Note: vitest runs test _files_ in parallel worker processes by default.
 Each integration test file opens its own real Postgres connection and
 keeps one transaction open for its whole run (rolled back at the end) —
 running several of these files concurrently against the same local
