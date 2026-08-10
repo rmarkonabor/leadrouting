@@ -150,14 +150,18 @@ for auth purposes. See `docs/decisions.md` ADR-010.
   `anon`/publishable-key client, so the service-role key never appears on
   the request path with the largest untrusted-input surface (a public,
   unauthenticated-by-session endpoint).
-- CRM credentials (`CRM_CLIENT_SECRET`, per-organization OAuth tokens) are
-  stored encrypted using **Supabase Vault** (a Postgres extension backed
-  by `pgsodium`), not application-level crypto with a manually-managed
-  key — see `docs/decisions.md`. This satisfies spec §52's "encrypted CRM
-  credentials" without adding a new provider.
-- `WEBHOOK_ENCRYPTION_KEY` similarly protects webhook endpoint secrets at
-  rest, or Vault is used uniformly for both — final choice recorded in
-  `docs/decisions.md` before Milestone 8.
+- CRM credentials (per-organization OAuth access/refresh tokens) and
+  webhook endpoint secrets are encrypted at rest with application-level
+  AES-256-GCM (`lib/crypto/secret-box.ts`), keyed by the server-only
+  `WEBHOOK_ENCRYPTION_KEY` env var — not Supabase Vault. Vault (pgsodium)
+  was the originally planned mechanism (see the now-superseded ADR-003) but
+  was never implemented; ADR-051 records the actual decision and its
+  rationale. Encryption and decryption happen entirely in Node
+  (`encryptSecret`/`decryptSecret`); Postgres only ever stores and returns
+  the resulting opaque ciphertext (`credentials_encrypted`/
+  `secret_encrypted` columns, typed `text`), never touching the plaintext.
+  This satisfies spec §52's "encrypted CRM credentials" without adding a
+  new provider or dependency.
 - Source tokens (spec §17) are stored only as a hash
   (`lead_sources.source_token_hash`); the plaintext token is shown once at
   creation/rotation and never persisted.
@@ -240,6 +244,47 @@ same allow-list at runtime as a backstop.
 The same allow-list discipline applies to `lib/logging` — application logs
 never include lead PII, matching CLAUDE.md rule 18.
 
+### 7.1 Milestone 9 re-verification against post-M6–M8 event shapes
+
+`tests/unit/sentry-sanitize.test.ts`'s "Milestone 9 production-shaped event
+review" suite builds events matching the payload shapes that only became
+possible after Milestones 6–8 and confirms the same allow-list-based
+sanitizer (unchanged since Milestone 2) still strips them correctly, since
+it operates structurally (drop `request.data`/`extra`/breadcrumb `data`
+wholesale, allow-list tags/contexts) rather than by naming specific
+payload shapes:
+
+- A CRM contact sync payload (name/email/phone/custom variables) carried as
+  breadcrumb `data` — stripped.
+- A webhook delivery's outgoing event payload (`request.data`) — stripped.
+  Its HMAC signature header (`x-webhook-signature`) is intentionally left
+  alone: it is a public digest of the payload, not a bearer credential, and
+  the payload it signs is already gone.
+- CRM credentials (`accessToken`/`refreshToken`) attached via
+  `extra`/`contexts` — stripped, since both channels are dropped/allow-
+  listed wholesale regardless of key names inside them.
+- A rendered notification email body (subject/HTML containing a lead's name
+  and email) carried as breadcrumb `data` — stripped.
+- Milestone 8's new tag keys: `job_id`/`integration_provider` pass through
+  (allow-listed); `connection_id`/`webhook_endpoint_id`/`delivery_id` are
+  dropped (not on the allow-list, and not needed — `job_id` already
+  correlates back to the `integration_jobs` row for support/debugging).
+
+One accepted, documented limitation surfaced by this review: the
+regex-based secret-scrubbing fallback in `sanitize.ts` (Bearer tokens,
+JWT-shaped strings, Stripe/Square-style key prefixes) does **not** match
+an arbitrary vendor-shaped CRM token embedded directly in an exception
+message (e.g. `at_live_...`). This is explicitly the defense-in-depth
+layer, not the primary control — the primary control is
+`src/modules/integrations/redact.ts`'s `buildSafeRequestSummary`/
+`buildSafeResponseSummary`, which structurally never carries a field
+_value_ (only field names, method, and a query-string-stripped URL) into
+any log or error path in the first place, so no code path in
+`http-crm-adapter.ts` ever interpolates a credential into a thrown `Error`
+message for the regex layer to need to catch. Verified by a test that
+documents this current behavior explicitly rather than silently assuming
+the regex layer is exhaustive.
+
 ## 8. Audit logging (spec §46)
 
 `audit_logs` rows are inserted by module functions immediately after the
@@ -250,16 +295,49 @@ role has UPDATE/DELETE grants on `audit_logs`; only INSERT and SELECT
 
 ## 9. Known risks and mitigations
 
-| Risk                                                                                            | Mitigation                                                                                                                                                                                                                                 |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Service-role key used outside trusted server contexts, bypassing RLS                            | Import-boundary lint rule; code review checklist; only Queue/Cron consumers and Edge Functions may import the service-role client; the public intake endpoint uses a scoped `SECURITY DEFINER` function instead of the service-role client |
-| Authorization decision made from an unverified `getSession()` cookie read                       | Shared `getVerifiedUser()` helper wraps `supabase.auth.getUser()`; `getSession()` is banned from authorization code paths by convention and code review                                                                                    |
-| Unreviewed destructive migration silently dropping/mutating data in a linked environment        | Destructive schema changes are isolated into their own migration, called out in the PR, and require explicit reviewer sign-off; linked destructive commands require explicit user approval (CLAUDE.md rules 10–12)                         |
-| Round-robin race condition producing duplicate/skewed assignments under concurrent submissions  | `SELECT ... FOR UPDATE` on `routing_state` inside `route_lead`; concurrency test is release-blocking (spec §54)                                                                                                                            |
-| Two concurrent requests both create an "active" assignment for the same lead                    | Partial unique index on `assignments.lead_id`; lead-routing-record lock in `route_lead`                                                                                                                                                    |
-| Webhook/CRM sync replay creating duplicate external records                                     | `external_record_links` unique constraint; `webhook_deliveries` unique constraint; dedupe-key pattern on all queue jobs                                                                                                                    |
-| Stale JWT claim granting access after a membership is revoked                                   | RLS policies re-check `organization_users` live, not a cached claim                                                                                                                                                                        |
-| PII leaking into Sentry or logs                                                                 | Shared sanitizer/allow-list used by every capture path; no ad hoc `Sentry.captureException` calls without going through the wrapped helper                                                                                                 |
-| CRM/webhook secrets stored in plaintext                                                         | Supabase Vault (pgsodium) for credentials at rest; source tokens stored only as hashes                                                                                                                                                     |
-| Rate limiting bypassed because no dedicated infra (Redis excluded)                              | DB-backed counters, acceptable at Phase 1 volume; revisit if pilot traffic exceeds single-Postgres-instance comfort                                                                                                                        |
-| Cross-organization data exposure via a missing `organization_id` filter in a hand-written query | RLS as backstop even when a module forgets the filter; tenant-isolation tests are release-blocking                                                                                                                                         |
+| Risk                                                                                            | Mitigation                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Service-role key used outside trusted server contexts, bypassing RLS                            | Import-boundary lint rule; code review checklist; only Queue/Cron consumers and Edge Functions may import the service-role client; the public intake endpoint uses a scoped `SECURITY DEFINER` function instead of the service-role client                                                                                                                                                  |
+| Authorization decision made from an unverified `getSession()` cookie read                       | Shared `getVerifiedUser()` helper wraps `supabase.auth.getUser()`; `getSession()` is banned from authorization code paths by convention and code review                                                                                                                                                                                                                                     |
+| Unreviewed destructive migration silently dropping/mutating data in a linked environment        | Destructive schema changes are isolated into their own migration, called out in the PR, and require explicit reviewer sign-off; linked destructive commands require explicit user approval (CLAUDE.md rules 10–12)                                                                                                                                                                          |
+| Round-robin race condition producing duplicate/skewed assignments under concurrent submissions  | `SELECT ... FOR UPDATE` on `routing_state` inside `route_lead`; concurrency test is release-blocking (spec §54)                                                                                                                                                                                                                                                                             |
+| Two concurrent requests both create an "active" assignment for the same lead                    | Partial unique index on `assignments.lead_id`; lead-routing-record lock in `route_lead`                                                                                                                                                                                                                                                                                                     |
+| Webhook/CRM sync replay creating duplicate external records                                     | `external_record_links` unique constraint; `webhook_deliveries` unique constraint; dedupe-key pattern on all queue jobs                                                                                                                                                                                                                                                                     |
+| Stale JWT claim granting access after a membership is revoked                                   | RLS policies re-check `organization_users` live, not a cached claim                                                                                                                                                                                                                                                                                                                         |
+| PII leaking into Sentry or logs                                                                 | Shared sanitizer/allow-list used by every capture path; no ad hoc `Sentry.captureException` calls without going through the wrapped helper                                                                                                                                                                                                                                                  |
+| CRM/webhook secrets stored in plaintext                                                         | Application-level AES-256-GCM encryption (`lib/crypto/secret-box.ts`, keyed by `WEBHOOK_ENCRYPTION_KEY`) for credentials at rest, per ADR-051 — supersedes the originally-planned Supabase Vault (pgsodium) approach, which was never implemented; source tokens stored only as hashes                                                                                                      |
+| Rate limiting bypassed because no dedicated infra (Redis excluded)                              | DB-backed counters, acceptable at Phase 1 volume; revisit if pilot traffic exceeds single-Postgres-instance comfort                                                                                                                                                                                                                                                                         |
+| Cross-organization data exposure via a missing `organization_id` filter in a hand-written query | RLS as backstop even when a module forgets the filter; tenant-isolation tests are release-blocking                                                                                                                                                                                                                                                                                          |
+| Data loss with no way to recover (accidental deletion, bad migration, provider incident)        | Known, accepted gap on the current Supabase free-tier project: automatic backups / point-in-time recovery are not available on the free plan. No workaround is implemented in Phase 1 — documented honestly in `docs/production-readiness.md` rather than papered over; upgrading the Supabase project tier is the only real mitigation, and is a business decision, not an engineering one |
+
+### 9.1 Milestone 9 re-verification
+
+Every mitigation above was re-checked against the system as it exists after
+Milestones 6–8 (notifications, lead interface, integrations/webhooks), not
+just as originally designed:
+
+- Service-role import boundary: still enforced by the `eslint.config.mjs`
+  allow-list, which now also covers `src/modules/integrations/**` and
+  `src/modules/webhooks/**`; the inbound CRM webhook route
+  (`src/app/api/webhooks/crm/[connectionId]/route.ts`) was deliberately
+  written against the `anon` client plus two narrow `SECURITY DEFINER`
+  functions rather than the service-role client, mirroring the lead-intake
+  pattern this mitigation describes.
+- `getVerifiedUser()` remains the only path into
+  `requireOrgAdminContext`/`requireOrgContext`; no module added since M5
+  reads `getSession()` for an authorization decision.
+- Round-robin locking and the single-active-assignment partial unique index
+  are untouched by M6–M8 (no migration in this window alters
+  `routing_state` or `assignments`).
+- Webhook/CRM replay dedupe: confirmed by Milestone 8's own regression test
+  ("duplicate-CRM-record regression: retrying the same sync_contact job
+  never creates a second external_record_links row",
+  `tests/unit/integrations/process-crm-sync.test.ts`) and by
+  `webhook_deliveries`'s unique constraint plus signature/replay checks in
+  `modules/webhooks/signing.ts`.
+- PII-in-Sentry: re-verified in full as its own Milestone 9 task against
+  every new event shape (notification, CRM sync, webhook delivery) —
+  tracked separately, not duplicated here.
+- Cross-org exposure: re-verified as its own Milestone 9 task running the
+  complete `tests/integration` suite together against one shared database
+  with all 8 migrations applied, rather than per-milestone in isolation.

@@ -119,3 +119,22 @@ SQL, and are covered at the unit level in
 `tests/unit/notifications/process-assignment-notifications.test.ts`
 using `TestQueueAdapter`/`TestEmailAdapter` (no real queue or email
 service involved).
+
+## Milestone 9 tenant-isolation re-verification
+
+As part of Milestone 9's tenant-isolation review, all 8 files above were
+run together (not one at a time, per-module, as in earlier milestones)
+against a single Postgres instance with all 10 `supabase/migrations/`
+files applied in order — the same shape of database a real deploy
+produces, rather than a fresh per-file fixture. Result: 8 files, 60/60
+tests passing, confirming that no later milestone's migration or RLS
+policy regressed an earlier milestone's tenant isolation. In CI (per
+`.github/workflows/ci.yml`'s `integration-tests` job) this is achieved
+with `supabase start`, whose local stack already carries the
+`anon`/`authenticated`/`service_role` default privilege grants that a
+real Supabase project provisions; a bare hand-rolled Postgres instance
+(no Supabase platform bootstrap) additionally needs
+`grant all on all tables/sequences in schema public` and
+`grant usage on schema auth` to those three roles before these tests can
+run, since those grants are normally applied by the Supabase platform
+itself, not by any file in this repo.

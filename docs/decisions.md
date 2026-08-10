@@ -1259,3 +1259,53 @@ before either function is ever called — mirrors `resolve_lead_source`/
 connection's own admin-configured `statusMapping` are ever applied — spec
 §42 item 7's "selected" lead status changes, not any string a CRM sends.
 **Status**: adopted.
+
+## ADR-056: Fixed a round-robin first-assignment race condition found by Milestone 9's higher-parallelism concurrency review
+
+**Context**: Milestone 9's concurrency review re-ran the release-blocking
+routing scenarios (spec §54) at higher parallelism than Milestone 5's
+original verification (ADR-038: 30 leads / 3 agents, run sequentially
+enough to never race the very first assignment for a team+flow). The new
+test (`tests/integration/milestone9-concurrency.test.ts`) routes 60 leads
+genuinely concurrently — real, separate Postgres connections, real
+`Promise.all` — against a fresh 5-agent round robin. On the first run this
+produced a 13/12/12/12/11 split instead of the required exact 12 each, and
+the "no unresolved critical security issue" / "all release-blocking tests
+pass" bars in this milestone's definition of done mean this could not be
+waved through.
+**Root cause**: `compute_routing_decision`'s round-robin/weighted-round-
+robin branch (and the identical team-fallback branch) issued `select ...
+from routing_state where ... for update` to read and lock the rotation
+cursor. `SELECT ... FOR UPDATE` against a query that matches zero rows
+takes no lock — there is no row to lock. The very first routing decision
+ever made for a given (organization, team, flow) has no `routing_state`
+row yet, so multiple concurrent `route_lead` calls landing on that same
+"row doesn't exist yet" state all independently read
+`last_assigned_user_id is null` and all pick the same first candidate,
+rather than serializing on who goes first. ADR-038's locking design was
+correct for every assignment _after_ the first; the gap was specifically
+the bootstrap case, which a smaller/slower concurrent load (M5's original
+check) never happened to hit.
+**Decision**: `20260813080000_milestone9_routing_state_race_fix.sql`
+replaces `compute_routing_decision` to `insert into routing_state (...)
+... on conflict (organization_id, team_id, routing_flow_id) do nothing`
+immediately before each `for update` read, whenever `p_lock_state` is
+true. Postgres serializes concurrent inserts on the same conflict key (a
+second concurrent insert blocks until the first commits, then sees the row
+and no-ops), so by the time any caller reaches the following `for update`,
+the row is guaranteed to exist and locks exactly as originally intended —
+including for the very first assignment. `simulate_routing`
+(`p_lock_state = false`) is unaffected: it still takes no lock and writes
+nothing, unchanged from ADR-038.
+**Verification**: with the fix applied, the same 60-concurrent-lead test
+produces an exact 12/12/12/12/12 split and zero duplicate active
+assignments; a second test in the same file races 25 concurrent
+`route_lead` calls against one lead (exactly one gets `assigned`, the rest
+`already_assigned`); a third races 20 concurrent `simulate_routing` calls
+against 10 concurrent real `route_lead` calls and confirms the simulated
+lead never gets an assignment and the rotation cursor advances by exactly
+10, not 30. Per the standing project rule "do not continue when
+concurrency tests fail — routing concurrency failures are release
+blocking," this was root-caused and fixed rather than the test being
+loosened.
+**Status**: adopted.

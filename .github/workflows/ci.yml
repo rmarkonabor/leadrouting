@@ -5,12 +5,11 @@ on:
   push:
     branches: [main]
 
-# Milestone 1 minimal gate: format/lint/typecheck/test/build on every PR, per
-# CLAUDE.md rule 15. The full CI plan (Playwright, RLS integration against a
-# spun-up local Supabase stack, dependency vulnerability scan) is Milestone 9
-# scope per docs/implementation-plan.md and docs/testing-strategy.md §4 — this
-# workflow is intentionally small so this milestone has a real automated gate
-# without pulling forward work that belongs later.
+# Milestone 1 established the minimal gate (format/lint/typecheck/test/build)
+# per CLAUDE.md rule 15. Milestone 9 (Production Readiness) extends it per
+# docs/implementation-plan.md and docs/testing-strategy.md §4 with the two
+# pieces that were explicitly deferred: RLS/integration tests against a real
+# local Supabase stack, and a dependency vulnerability scan.
 
 jobs:
   checks:
@@ -45,5 +44,50 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Dependency vulnerability scan
+        run: npm audit --audit-level=high
+
       - name: Build
         run: npm run build
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-publishable-key
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      SUPABASE_SECRET_KEY: ci-placeholder-secret-key
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Starts the local Postgres/Auth/PostgREST stack and applies every
+      # migration in supabase/migrations/ (per docs/database-schema.md §22,
+      # this is local-only — never `--linked`, per CLAUDE.md rule 12).
+      - name: Start local Supabase stack
+        run: supabase start
+
+      # tests/integration/*.test.ts are skipIf(!TEST_DATABASE_URL) at the
+      # describe level (see tests/integration/README.md), so this step is
+      # the first place in CI they actually run. --no-file-parallelism per
+      # the same README: several files sharing one Postgres connection pool
+      # under contention can produce spurious transaction-state errors.
+      - name: Integration tests (RLS + real Postgres)
+        run: |
+          npx vitest run tests/integration --no-file-parallelism
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Stop local Supabase stack
+        if: always()
+        run: supabase stop
