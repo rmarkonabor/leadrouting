@@ -43,10 +43,9 @@ Postgres) to store CRM OAuth credentials and webhook signing secrets at
 rest, rather than hand-rolled application-level encryption with a manually
 managed key. This avoids adding a new provider and avoids the higher risk
 of a bespoke crypto implementation.
-**Status**: proposed — confirm Vault is available on the target Supabase
-plan before Milestone 8; if not, fall back to `pgcrypto` with
-`WEBHOOK_ENCRYPTION_KEY`/an equivalent app-managed key stored only in
-Vercel environment variables, never in the database.
+**Status**: superseded by ADR-051 (Milestone 8) — application-level
+AES-256-GCM via `lib/crypto/secret-box.ts`, keyed by
+`WEBHOOK_ENCRYPTION_KEY`, not Supabase Vault and not `pgcrypto`.
 
 ## ADR-004: Rate limiting is database-backed, not Redis-backed
 
@@ -1126,4 +1125,137 @@ full suite without those vars and confirming all 11 tests skip cleanly.
 Milestone 9 remains the point at which Playwright becomes a CI gate with
 broader coverage across the rest of the app — this is an early, narrow
 slice of that eventual scope, not a replacement for it.
+**Status**: adopted.
+
+## ADR-051: Integration secret encryption is application-level AES-256-GCM, not Supabase Vault (resolves ADR-003)
+
+**Context**: ADR-003 flagged CRM credential/webhook secret encryption as
+"proposed — confirm Vault is available on the target Supabase plan before
+Milestone 8." Milestone 8 is now that milestone. Supabase Vault needs
+per-environment setup through the Supabase dashboard/Vault API that this
+codebase has no way to provision or verify automatically, and its
+management story adds real operational surface (key rotation, access
+policies) disproportionate to what Phase 1 needs. The alternative
+considered — `pgcrypto`, passing a plaintext secret into a Postgres
+function argument for `pgp_sym_encrypt` — was rejected because that
+plaintext would then appear in Postgres query logs and `pg_stat_statements`,
+undermining the entire point of encrypting it.
+**Decision**: `lib/crypto/secret-box.ts` encrypts CRM credentials and
+webhook secrets in Node, before anything reaches Postgres, using
+AES-256-GCM keyed by `WEBHOOK_ENCRYPTION_KEY` (server-only env var, hashed
+with SHA-256 so operators can set it to any passphrase rather than an
+exact 32-byte value). `integration_connections.credentials_encrypted` and
+`webhook_endpoints.secret_encrypted` are `text` columns (not `bytea`) —
+Postgres only ever sees or returns opaque hex ciphertext, produced and
+consumed exclusively by this one module, and the `text` type sidesteps any
+ambiguity in how a JS client would encode binary over PostgREST. This
+resolves ADR-003's "proposed" status without adding Supabase Vault.
+**Status**: adopted, ADR-003 superseded by this decision.
+
+## ADR-052: Milestone 8's lifecycle events fire via AFTER triggers, not by editing the M3/M5/M6/M7 core transactional functions
+
+**Context**: `crm_sync`/`outbound_webhooks` jobs need to be enqueued the
+moment a lead is created, an assignment is created/accepted/declined, or a
+lead's status changes — events that already happen inside
+`record_lead_submission` (M3), `route_lead`/`reassign_lead` (M5),
+`accept_assignment`/`decline_assignment`/`manually_assign_or_reassign_lead`
+(M6), and `update_lead_status` (M7). The session's standing hard rule —
+"do not continue when concurrency tests fail; routing concurrency failures
+are release blocking" — means any edit to those functions carries real
+risk to already-verified, concurrency-sensitive behavior (round-robin
+locking, the partial-unique-index assignment guarantee).
+**Decision**: add zero lines to any of those functions. Instead, `AFTER
+INSERT`/`AFTER UPDATE OF status` triggers on `leads`, `assignments`, and
+`lead_status_history` call the new generic `enqueue_integration_job(...)`
+directly from the row that was just written — they fire inside the same
+transaction as the write that caused them (so they roll back together,
+same atomicity guarantee a hand-added `perform enqueue_...` call inside
+those functions would have had), but never touch those functions' own
+bodies, locking, or logic. Verified directly against real Postgres
+(`tests/integration/milestone8-integrations.test.ts`): a lead insert
+enqueues `lead.created`/`sync_contact`; a second assignment for an
+already-assigned lead enqueues `lead.reassigned` rather than
+`lead.assigned`; an assignment transitioning to `accepted` enqueues
+`lead.accepted`/`sync_accepted_status`; a `lead_status_history` insert to
+`converted`/`lost` enqueues both `lead.status_changed` and the specific
+`lead.converted`/`lead.lost` event.
+**Status**: adopted.
+
+## ADR-053: The one CRM adapter is a generic, settings-configured HTTP/OAuth2 adapter, not a named vendor's API
+
+**Context**: spec §42 says "Phase 1 should implement one direct CRM
+adapter" but names no specific provider, and neither did the Milestone 8
+kickoff. Committing to a named vendor (HubSpot, Salesforce, Pipedrive,
+...) would mean writing against that vendor's exact REST contract from
+memory, with no way to verify correctness against real, current API
+documentation in this environment — a real risk of shipping confidently
+wrong request shapes.
+**Decision**: `HttpCrmAdapter` implements all ten required methods
+(`connect`, `disconnect`, `testConnection`, `listUsers`,
+`createOrUpdateContact`, `assignOwner`, `updateStatus`, `createNote`,
+`handleWebhook`, `refreshCredentials`) against a generic REST shape fully
+driven by `integration_connections.settings` (base URL, resource paths,
+auth header/scheme, inbound webhook secret and field names) and
+`credentials` (access/refresh token). `CRM_CLIENT_ID`/`CRM_CLIENT_SECRET`
+(already-declared server env vars) are the one app-level OAuth2 client
+registration shared across every org's connection to a given provider —
+the normal shape of a multi-tenant OAuth integration. Pointing this
+adapter at a real, named CRM is a configuration exercise (settings values)
+for whenever a specific provider is chosen, not a code change. All
+automated tests use `TestCrmAdapter` (in-memory, records every call)
+exclusively — the kickoff explicitly forbids connecting a real production
+CRM during automated testing.
+**Status**: adopted.
+
+## ADR-054: crm_sync/outbound_webhooks retries drain from the existing `integration_jobs` ledger, not a third literal pgmq queue
+
+**Context**: `docs/background-processing.md`'s original table lists
+`integration_retries` as a "queue" whose consumer "re-drives failed
+integration or webhook jobs on the retry schedule." Spec §43's retry
+schedule (1m, 5m, 30m, 2h, 12h) is human-scale, unlike
+`assignment_notifications`' short pgmq-visibility-timeout retries (M6) —
+leaving a failed message sitting invisible in a pgmq queue for up to 12
+hours doesn't fit pgmq's intended usage pattern.
+**Decision**: `fail_integration_job` always archives the failed pgmq
+message (removing it from the visible queue) and records `next_retry_at`
+on the `integration_jobs` row per the spec §43 schedule; a single
+parameterized `drain_integration_retries(queue_name)` — wrapped as
+`run_drain_crm_sync_retries()`/`run_drain_webhook_retries()` for Cron —
+re-sends a fresh pgmq message for any row whose `next_retry_at` has
+passed. There is no separate `integration_retries` pgmq queue: the retry
+schedule is realized entirely against the shared ledger already backing
+every queue since Milestone 6, which is simpler than a third queue and
+was already the ledger's designed purpose (see that migration's own
+comment anticipating this reuse). Verified against real Postgres that
+`drain_integration_retries` re-queues only rows whose delay has elapsed,
+leaving not-yet-due retries untouched.
+**Status**: adopted.
+
+## ADR-055: The inbound CRM webhook route uses the anon client + two narrow SECURITY DEFINER functions, never the service-role client
+
+**Context**: `POST /api/webhooks/crm/[connectionId]` is a second pre-auth
+request path alongside `POST /api/v1/intake/[sourceToken]` (ADR-011) — a
+CRM pushing a status change has no user session behind it, yet the route
+needs to read a connection's encrypted credentials/settings (RLS-gated,
+org_admin-only data) and write a lead status change on behalf of no
+authenticated user. Reaching for the service-role client here — the
+obvious shortcut, and the one this codebase's internal Cron-invoked queue
+routes legitimately use — would be exactly the kind of public,
+unauthenticated route the ESLint `no-restricted-imports` rule (ADR-022)
+exists to keep that client off of.
+**Decision**: the route uses `createAnonSupabaseClient()` (same client
+`POST /api/v1/intake/[sourceToken]` uses) plus two new narrow SECURITY
+DEFINER functions granted to `anon`: `get_connection_for_inbound_webhook`
+(read-only, returns only a connected connection's provider/settings/
+encrypted credentials) and `apply_inbound_crm_status_change` (validates
+the CRM's status against the connection's own `settings.statusMapping`,
+then updates the lead — duplicating a small amount of `update_lead_status`
+rather than calling it, since that function relies on the caller's own
+`auth.uid()`/RLS context, which an anonymous, signature-verified request
+doesn't have). Real authorization is entirely the adapter's own signature
+verification inside `handleWebhook`, using the connection's stored secret,
+before either function is ever called — mirrors `resolve_lead_source`/
+`record_lead_submission`'s exact pattern. Only statuses present in a
+connection's own admin-configured `statusMapping` are ever applied — spec
+§42 item 7's "selected" lead status changes, not any string a CRM sends.
 **Status**: adopted.

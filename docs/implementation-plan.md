@@ -582,6 +582,14 @@ a lightweight lead view, not a CRM; all quality gates pass.
 
 ## Milestone 8 — Integrations
 
+**Status: implemented.** See docs/decisions.md ADR-051 through ADR-055
+(ADR-003 superseded by ADR-051). Migration:
+`supabase/migrations/20260813070000_milestone8_integrations.sql`. Scoped
+per the kickoff to generic outbound webhooks + one CRM adapter only; the
+CRM adapter is a generic, settings-configured HTTP/OAuth2 implementation
+rather than a named vendor's API (ADR-053), and does not sync calls, SMS,
+email conversations, appointments, or historical CRM activity.
+
 **1. Objective**
 Synchronize routed leads and their ownership to one external CRM and to
 generic outbound webhook subscribers.

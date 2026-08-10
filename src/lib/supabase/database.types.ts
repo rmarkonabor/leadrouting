@@ -121,6 +121,28 @@ export type IntegrationJobStatus =
   | "cancelled"
   | "dead_letter";
 
+export type IntegrationConnectionStatus = "connected" | "disconnected" | "error";
+export type IntegrationLogStatus =
+  | "queued"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "retrying"
+  | "dead_letter"
+  | "resolved";
+export type WebhookEndpointStatus = "active" | "inactive";
+export type WebhookDeliveryStatus =
+  "queued" | "processing" | "delivered" | "failed" | "retrying" | "dead_letter";
+export type WebhookEventType =
+  | "lead.created"
+  | "lead.assigned"
+  | "lead.accepted"
+  | "lead.declined"
+  | "lead.reassigned"
+  | "lead.status_changed"
+  | "lead.converted"
+  | "lead.lost";
+
 export interface Database {
   public: {
     Tables: {
@@ -1236,6 +1258,181 @@ export interface Database {
         Update: never;
         Relationships: [];
       };
+      integration_connections: {
+        Row: {
+          id: string;
+          organization_id: string;
+          provider: string;
+          status: IntegrationConnectionStatus;
+          credentials_encrypted: string | null;
+          settings: Record<string, unknown>;
+          connected_by_user_id: string | null;
+          connected_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          provider: string;
+          status?: IntegrationConnectionStatus;
+          credentials_encrypted?: string | null;
+          settings?: Record<string, unknown>;
+          connected_by_user_id?: string | null;
+          connected_at?: string | null;
+        };
+        Update: Partial<{
+          status: IntegrationConnectionStatus;
+          credentials_encrypted: string | null;
+          settings: Record<string, unknown>;
+          connected_by_user_id: string | null;
+          connected_at: string | null;
+        }>;
+        Relationships: [];
+      };
+      integration_field_mappings: {
+        Row: {
+          id: string;
+          organization_id: string;
+          integration_connection_id: string;
+          source_field: string;
+          crm_field: string;
+          transformation: FieldMappingTransformation | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          integration_connection_id: string;
+          source_field: string;
+          crm_field: string;
+          transformation?: FieldMappingTransformation | null;
+        };
+        Update: Partial<{
+          source_field: string;
+          crm_field: string;
+          transformation: FieldMappingTransformation | null;
+        }>;
+        Relationships: [];
+      };
+      external_record_links: {
+        Row: {
+          id: string;
+          organization_id: string;
+          integration_connection_id: string;
+          lead_id: string;
+          provider: string;
+          external_record_id: string;
+          created_at: string;
+          updated_at: string;
+        };
+        // Written only by the service-role crm_sync consumer (never a
+        // user-facing module) — RLS has no INSERT policy for `authenticated`.
+        Insert: {
+          id?: string;
+          organization_id: string;
+          integration_connection_id: string;
+          lead_id: string;
+          provider: string;
+          external_record_id: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      integration_logs: {
+        Row: {
+          id: string;
+          organization_id: string;
+          integration_job_id: string | null;
+          provider: string;
+          event_type: string;
+          lead_id: string | null;
+          request_summary: Record<string, unknown> | null;
+          response_summary: Record<string, unknown> | null;
+          status: IntegrationLogStatus;
+          attempt_count: number;
+          next_retry_at: string | null;
+          created_at: string;
+          completed_at: string | null;
+        };
+        // Written only by the service-role crm_sync consumer.
+        Insert: {
+          id?: string;
+          organization_id: string;
+          integration_job_id?: string | null;
+          provider: string;
+          event_type: string;
+          lead_id?: string | null;
+          request_summary?: Record<string, unknown> | null;
+          response_summary?: Record<string, unknown> | null;
+          status?: IntegrationLogStatus;
+          attempt_count?: number;
+          completed_at?: string | null;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      webhook_endpoints: {
+        Row: {
+          id: string;
+          organization_id: string;
+          url: string;
+          secret_encrypted: string;
+          subscribed_events: WebhookEventType[];
+          status: WebhookEndpointStatus;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          url: string;
+          secret_encrypted: string;
+          subscribed_events?: WebhookEventType[];
+          status?: WebhookEndpointStatus;
+        };
+        Update: Partial<{
+          url: string;
+          secret_encrypted: string;
+          subscribed_events: WebhookEventType[];
+          status: WebhookEndpointStatus;
+        }>;
+        Relationships: [];
+      };
+      webhook_deliveries: {
+        Row: {
+          id: string;
+          organization_id: string;
+          webhook_endpoint_id: string;
+          integration_job_id: string | null;
+          event_id: string;
+          event_type: string;
+          payload: Record<string, unknown>;
+          status: WebhookDeliveryStatus;
+          attempt_count: number;
+          next_retry_at: string | null;
+          last_response_status: number | null;
+          created_at: string;
+          completed_at: string | null;
+        };
+        // Written only by the service-role outbound_webhooks consumer.
+        Insert: {
+          id?: string;
+          organization_id: string;
+          webhook_endpoint_id: string;
+          integration_job_id?: string | null;
+          event_id: string;
+          event_type: string;
+          payload: Record<string, unknown>;
+          status?: WebhookDeliveryStatus;
+          attempt_count?: number;
+          last_response_status?: number | null;
+          completed_at?: string | null;
+        };
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -1407,6 +1604,71 @@ export interface Database {
           assignmentSuccessRate: number | null;
           manualRoutingRate: number | null;
         };
+      };
+      enqueue_integration_job: {
+        Args: {
+          p_organization_id: string;
+          p_queue_name: string;
+          p_job_type: string;
+          p_dedupe_key: string;
+          p_payload: unknown;
+        };
+        Returns: string | null;
+      };
+      dequeue_integration_jobs: {
+        Args: {
+          p_queue_name: string;
+          p_batch_size?: number;
+          p_visibility_timeout_seconds?: number;
+        };
+        Returns: { msg_id: number; payload: Record<string, unknown>; read_ct: number }[];
+      };
+      ack_integration_job: {
+        Args: { p_queue_name: string; p_msg_id: number; p_job_id: string };
+        Returns: undefined;
+      };
+      fail_integration_job: {
+        Args: {
+          p_queue_name: string;
+          p_msg_id: number | null;
+          p_job_id: string;
+          p_error: string;
+          p_max_attempts?: number;
+        };
+        Returns: undefined;
+      };
+      run_drain_crm_sync_retries: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      run_drain_webhook_retries: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      mark_integration_log_resolved: {
+        Args: { p_log_id: string };
+        Returns: Database["public"]["Tables"]["integration_logs"]["Row"];
+      };
+      retry_integration_job: {
+        Args: { p_job_id: string };
+        Returns: Database["public"]["Tables"]["integration_jobs"]["Row"];
+      };
+      get_connection_for_inbound_webhook: {
+        Args: { p_connection_id: string };
+        Returns: {
+          organization_id: string;
+          provider: string;
+          settings: Record<string, unknown>;
+          credentials_encrypted: string | null;
+        }[];
+      };
+      apply_inbound_crm_status_change: {
+        Args: {
+          p_connection_id: string;
+          p_external_record_id: string;
+          p_crm_status: string;
+        };
+        Returns: Record<string, unknown>;
       };
     };
   };
