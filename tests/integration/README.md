@@ -28,6 +28,16 @@ limitations" section.
    TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm test
    ```
 
+Note: vitest runs test *files* in parallel worker processes by default.
+Each integration test file opens its own real Postgres connection and
+keeps one transaction open for its whole run (rolled back at the end) —
+running several of these files concurrently against the same local
+database can occasionally produce spurious timeouts or transaction-state
+errors under contention (observed on constrained sandbox hardware, not a
+correctness issue — every file passes reliably alone). If you see that,
+add `--no-file-parallelism` to the vitest invocation. This doesn't affect
+CI, which never sets `TEST_DATABASE_URL` and skips these files entirely.
+
 ## What is verified
 
 `rls-tenant-isolation.test.ts` connects as the Postgres superuser to seed
@@ -78,3 +88,34 @@ Same skip/run conditions, extended to Milestone 4's tables (`territories`,
 organization's territories but can read their own; an agent (non-admin)
 cannot create a territory; an `org_admin` cannot read another
 organization's `lead_locations_internal` rows.
+
+## Milestone 5 (`milestone5-routing.test.ts`)
+
+Same skip/run conditions, extended to the routing engine (`routing_flows`,
+`routing_rules`, `assignments`, `routing_state`, `manual_review_items`).
+Verifies: round-robin routing creates exactly one active assignment;
+re-routing an already-assigned lead is idempotent; `simulate_routing`
+writes zero rows; declining an assignment reassigns to a different user;
+published `routing_flow_versions` are immutable; an org_admin cannot read
+another organization's routing flows or assignments.
+
+## Milestone 6 (`milestone6-assignment-lifecycle.test.ts`)
+
+Same skip/run conditions, extended to the assignment lifecycle
+(`notifications`, `integration_jobs`, and the `run_expire_assignments`/
+`manually_assign_lead` functions). Verifies all 15 required scenarios:
+acceptance, decline, expiration (and idempotent repeated Cron sweeps),
+automatic reassignment, previous-recipient exclusion, repeated accept
+requests, accept/decline after expiration (both rejected), two genuinely
+simultaneous accept requests on the same assignment (its own committed,
+self-cleaning fixture — the only test in this file that can't use the
+shared uncommitted-transaction fixture, since a second Postgres connection
+can't see uncommitted rows), no eligible replacement (manual review),
+manual assignment, and cross-organization isolation on
+`notifications`/`integration_jobs`. The remaining three required
+scenarios — repeated job delivery, queue retry behavior, and Sentry
+sanitization — concern the TypeScript notification consumer rather than
+SQL, and are covered at the unit level in
+`tests/unit/notifications/process-assignment-notifications.test.ts`
+using `TestQueueAdapter`/`TestEmailAdapter` (no real queue or email
+service involved).

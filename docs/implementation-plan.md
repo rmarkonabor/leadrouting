@@ -438,6 +438,9 @@ simulation changes zero live rows; all quality gates pass.
 
 ## Milestone 6 — Assignment Accountability
 
+**Status: implemented.** See docs/decisions.md ADR-041 through ADR-045.
+Migration: `supabase/migrations/20260810050000_milestone6_assignment_lifecycle.sql`.
+
 **1. Objective**
 Close the loop on an assignment's lifecycle: notify, track viewed,
 accept/decline, expire, reassign, and fall through to manual review when

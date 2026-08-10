@@ -104,7 +104,20 @@ export type RoutingActivityType =
   | "assignment_declined"
   | "assignment_expired"
   | "assignment_reassigned"
-  | "manual_review_created";
+  | "manual_review_created"
+  | "assignment_notified"
+  | "assignment_viewed"
+  | "manual_assignment"
+  | "manual_reassignment"
+  | "manual_review_resolved";
+export type IntegrationJobStatus =
+  | "queued"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "retrying"
+  | "cancelled"
+  | "dead_letter";
 
 export interface Database {
   public: {
@@ -1102,6 +1115,43 @@ export interface Database {
         Update: never;
         Relationships: [];
       };
+      notifications: {
+        Row: {
+          id: string;
+          organization_id: string;
+          user_id: string;
+          event_type: string;
+          lead_id: string | null;
+          assignment_id: string | null;
+          title: string;
+          body: string;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: never;
+        Update: Partial<{ read_at: string | null }>;
+        Relationships: [];
+      };
+      integration_jobs: {
+        Row: {
+          id: string;
+          organization_id: string;
+          queue_name: string;
+          job_type: string;
+          payload: Record<string, unknown>;
+          status: IntegrationJobStatus;
+          attempt_count: number;
+          next_retry_at: string | null;
+          dedupe_key: string;
+          queue_msg_id: number | null;
+          last_error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -1193,6 +1243,55 @@ export interface Database {
       reassign_lead: {
         Args: { p_lead_id: string };
         Returns: Record<string, unknown>;
+      };
+      mark_assignment_viewed: {
+        Args: { p_assignment_id: string };
+        Returns: Database["public"]["Tables"]["assignments"]["Row"];
+      };
+      manually_assign_lead: {
+        Args: { p_lead_id: string; p_user_id: string; p_team_id: string | null };
+        Returns: Database["public"]["Tables"]["assignments"]["Row"];
+      };
+      manually_reassign_lead: {
+        Args: { p_lead_id: string; p_user_id: string; p_team_id: string | null };
+        Returns: Database["public"]["Tables"]["assignments"]["Row"];
+      };
+      run_expire_assignments: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      run_send_expiration_warnings: {
+        Args: { p_warn_at_fraction?: number };
+        Returns: number;
+      };
+      dequeue_assignment_notifications: {
+        Args: { p_batch_size?: number; p_visibility_timeout_seconds?: number };
+        Returns: { msg_id: number; payload: Record<string, unknown>; read_ct: number }[];
+      };
+      ack_assignment_notification: {
+        Args: { p_msg_id: number; p_job_id: string };
+        Returns: undefined;
+      };
+      fail_assignment_notification: {
+        Args: {
+          p_msg_id: number;
+          p_job_id: string;
+          p_error: string;
+          p_max_attempts?: number;
+        };
+        Returns: undefined;
+      };
+      record_notification: {
+        Args: {
+          p_organization_id: string;
+          p_user_id: string;
+          p_event_type: string;
+          p_lead_id: string | null;
+          p_assignment_id: string | null;
+          p_title: string;
+          p_body: string;
+        };
+        Returns: Database["public"]["Tables"]["notifications"]["Row"];
       };
     };
   };
