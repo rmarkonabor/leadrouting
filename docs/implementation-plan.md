@@ -510,6 +510,11 @@ manual review; all quality gates pass.
 
 ## Milestone 7 — Lead Interface
 
+**Status: implemented.** See docs/decisions.md ADR-046 through ADR-050.
+Migration: `supabase/migrations/20260812060000_milestone7_lead_interface.sql`.
+Routing health is not team-scoped for a team_manager yet — tracked as a
+known gap in ADR-047, not silently shipped.
+
 **1. Objective**
 Give every role the lightweight lead-visibility surface the spec calls
 for, without becoming a CRM.
