@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "pg";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -60,6 +60,14 @@ describe.skipIf(!TEST_DATABASE_URL)("Milestone 4 tenant isolation", () => {
   afterAll(async () => {
     await client.query("rollback");
     await client.end();
+  });
+
+  beforeEach(async () => {
+    await client.query("savepoint test_savepoint");
+  });
+
+  afterEach(async () => {
+    await client.query("rollback to savepoint test_savepoint");
   });
 
   async function asUser<T>(userId: string, fn: () => Promise<T>): Promise<T> {
