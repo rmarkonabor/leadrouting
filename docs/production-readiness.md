@@ -106,19 +106,40 @@ explicitly delegate that walkthrough and report back what was found.
 
 ## 6. Vercel Preview / Production deployment
 
-- Preview deployments: per `docs/setup.md`, pushing a branch (or opening a
-  PR) triggers a Vercel Preview deployment automatically through the
-  GitHub integration — this mechanism itself is standard Vercel/GitHub
-  behavior, not something this milestone needed to build.
+**Verified directly against the real Vercel project's deployment
+history** (`leadrouting`, via the Vercel API), not assumed:
+
+- **Preview deployments for branches: confirmed.** Every push to a
+  `milestone/*` feature branch in this project's history produced its own
+  deployment with a branch-scoped alias (e.g.
+  `leadrouting-git-milestone-09-produ-...vercel.app`) and `target: null`
+  (Vercel's Preview classification) — this happened automatically through
+  the GitHub integration for every one of Milestones 5 through 9's
+  branches, with no manual trigger.
+- **Production deployment restricted to the production branch: confirmed.**
+  Every deployment in this project's history with `target: "production"`
+  has `githubCommitRef: "main"` — there is no example of a
+  `target: "production"` deployment originating from any other branch.
+  This is enforced by the Vercel project's own **Production Branch**
+  setting (Project Settings → Git), currently `main`, not by anything in
+  this repository's GitHub Actions workflow.
 - **Production deployment is explicitly not part of this milestone's
   verification**, per CLAUDE.md rule 13 and the Milestone 9 plan's own
   text: "do not actually deploy to production as part of this milestone's
   verification unless the user explicitly approves it." No production
   deploy has been made or requested as part of this work.
+- **Observation, not something this session investigated or fixed**:
+  several of the historical `target: "production"` deployments in this
+  project ended in `state: "ERROR"`. Diagnosing/fixing that is outside
+  this CI/deployment-safety-checks scope ("implement CI checks only") —
+  flagged here so it isn't missed before relying on production deploys
+  working cleanly.
 
 **Action needed from the user**: confirm a Preview deployment for this
-branch builds and serves correctly (§8's checklist), and give explicit
-approval before any production deploy.
+branch builds and serves correctly, and give explicit approval before any
+production deploy. See `docs/branch-protection.md` for the required
+GitHub-side branch protection settings (separate from, and complementary
+to, Vercel's own production-branch restriction described above).
 
 ## 7. Concurrency fix — read this before merging
 
@@ -134,6 +155,42 @@ This migration must be applied to the linked project the same way every
 other migration is (`supabase db push` or the SQL Editor — see CLAUDE.md
 rule 10; this session cannot apply it directly).
 
+## 7a. URGENT: missing table-level grants — likely affects the live app right now
+
+While wiring up real CI (turning on `supabase start` + the integration
+suite in actual GitHub Actions for the first time), every integration
+test failed with `permission denied for table ...`. Root cause: **no
+migration across Milestones 1–9 ever granted table-level privileges to
+the `authenticated` Postgres role** — every table's access has relied
+entirely on RLS policies, but Postgres checks the table-level `GRANT`
+before it ever evaluates an RLS policy. `supabase/config.toml`'s own
+`auto_expose_new_tables` setting confirms this isn't a CI-only quirk:
+newly created tables are **not** auto-exposed to
+`anon`/`authenticated`/`service_role` by default anymore ("the new cloud
+default") — a behavior Supabase used to provide automatically and no
+longer does. See `docs/decisions.md` ADR-057 for full detail.
+
+**This most likely means the currently-linked Supabase project has the
+same gap**, since it was set up the same way (migrations only, no manual
+grants) — if so, every authenticated user of the deployed app is
+currently getting `permission denied` on ordinary reads/writes, not just
+this session's CI run.
+
+**Fix**: `supabase/migrations/20260813090000_grant_table_privileges_to_data_api_roles.sql`
+grants the missing privileges and sets default privileges for future
+tables. **This should be applied to the linked project immediately**,
+independent of whether the rest of this PR chain has merged — it is
+purely additive (no table/column/constraint change) and does not weaken
+tenant isolation (RLS is still the real enforcement layer; see ADR-057
+for why `audit_logs`'s missing UPDATE/DELETE policy, for example, still
+blocks those commands regardless of this grant).
+
+**Action needed from the user**: apply this migration to the linked
+project as soon as possible, and if the app is already live for real
+users, verify with a real authenticated request that basic reads/writes
+(e.g. loading the dashboard, viewing a lead) actually work — this may
+explain any "permission denied" reports if the app has been in use.
+
 ## 8. Manual verification checklist (for the user / whoever runs this before pilot)
 
 - [ ] Decide on the Supabase free-tier backups gap (§2) — accept the risk
@@ -146,6 +203,11 @@ rule 10; this session cannot apply it directly).
       deployment (§5).
 - [ ] Confirm a Preview deployment for this branch builds and serves
       correctly.
+- [ ] **Urgent** — apply
+      `20260813090000_grant_table_privileges_to_data_api_roles.sql` to the
+      linked project (§7a) and confirm real authenticated reads/writes
+      work; this may already be causing `permission denied` errors for
+      real users of the deployed app.
 - [ ] Apply `20260813080000_milestone9_routing_state_race_fix.sql` (and
       every other pending migration) to the linked project.
 - [ ] Explicitly approve before any production deployment (CLAUDE.md

@@ -530,3 +530,16 @@ kind, so it doesn't change the conclusion above. Function redefinitions are
 outside this policy's scope entirely (they aren't "data," destructive or
 otherwise), but are still forward-only files under version control like
 every other migration, per CLAUDE.md rule 9.
+
+**Second addendum**: `20260813090000_grant_table_privileges_to_data_api_roles.sql`
+was added while wiring up real CI (see docs/decisions.md ADR-057) — it
+grants table-level privileges to `authenticated`/`service_role` that no
+prior migration ever granted, and were previously supplied outside any
+migration file by an assumption about Supabase's platform behavior that
+turned out to be false. This is purely additive (`GRANT`, plus `ALTER
+DEFAULT PRIVILEGES` for future tables) — it does not change any table,
+column, or constraint, and does not change the conclusion above. **This
+migration is important to apply promptly to any already-linked project**:
+without it, `authenticated`-role queries against any table fail with
+`permission denied`, independent of how correct that table's RLS policies
+are — see `docs/production-readiness.md` for the operational implication.
