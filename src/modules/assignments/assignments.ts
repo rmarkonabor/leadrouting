@@ -90,3 +90,58 @@ export async function listMyAssignments(organizationSlug: string | undefined) {
 
   return data;
 }
+
+/**
+ * Marks an assignment viewed (spec §31 step 5) — fired when the assignee
+ * opens the notification's lead link. Idempotent; a second call is a no-op.
+ */
+export async function markAssignmentViewed(
+  organizationSlug: string | undefined,
+  assignmentId: string,
+) {
+  const { membership } = await requireMembershipContext(organizationSlug);
+
+  const supabase = await createServerSupabaseClient();
+  const { data: existing, error: existingError } = await supabase
+    .from("assignments")
+    .select("id")
+    .eq("id", assignmentId)
+    .eq("organization_id", membership.organizationId)
+    .single();
+
+  if (existingError || !existing) {
+    throw new AppError("not_found", "Assignment not found.");
+  }
+
+  const { data, error } = await supabase.rpc("mark_assignment_viewed", {
+    p_assignment_id: assignmentId,
+  });
+
+  if (error) {
+    throw toAppError(error);
+  }
+
+  return data;
+}
+
+/** Lists routing/assignment attempt history for a lead (spec §31 step 11). */
+export async function listAssignmentAttempts(
+  organizationSlug: string | undefined,
+  leadId: string,
+) {
+  const { membership } = await requireMembershipContext(organizationSlug);
+
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("assignment_attempts")
+    .select()
+    .eq("organization_id", membership.organizationId)
+    .eq("lead_id", leadId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw toAppError(error);
+  }
+
+  return data;
+}

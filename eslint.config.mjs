@@ -30,7 +30,12 @@ const eslintConfig = defineConfig([
   ...nextTs,
   serviceRoleImportRestriction,
   {
-    files: ["src/modules/users/**", "src/modules/imports/**"],
+    files: [
+      "src/modules/users/**",
+      "src/modules/imports/**",
+      "src/modules/notifications/**",
+      "src/app/api/internal/**",
+    ],
     rules: {
       "no-restricted-imports": "off",
     },

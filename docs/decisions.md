@@ -861,3 +861,154 @@ milestones: a table's _own_ RLS policies must go through the same
 `SECURITY DEFINER` helper functions as every other table's policies that
 reference it — inlining the check "just this once" is exactly how this
 kind of recursion hides until something finally executes it for real.
+
+## ADR-041: Email sending lives behind a swappable `EmailAdapter`; no ESP is wired in yet
+
+**Context**: Milestone 6 requires "email notification queue entries" and
+agents "should receive an email notification," but no email service
+provider (Resend/SendGrid/SES/Postmark/etc.) is part of CLAUDE.md's
+approved stack, and adding one is exactly the kind of new-provider decision
+that needs explicit sign-off — the same situation ADR-003 (CRM credential
+encryption via Supabase Vault) and ADR-004 (rate limiting) already
+established a pattern for. `.env.example`/`lib/env/server.ts` have carried
+placeholder `EMAIL_PROVIDER_API_KEY`/`EMAIL_FROM_ADDRESS` variables since
+Milestone 1, anticipating this exact moment without committing to a vendor.
+**Decision**: `src/modules/notifications/email-adapter.ts` defines a
+one-method `EmailAdapter` interface. `LoggingEmailAdapter` is the
+production default until an ESP is chosen and approved — it never makes a
+network call and never logs the message's `to`/`subject`/`body` (which may
+contain lead-derived personal data, CLAUDE.md rule 18), only that a send
+was attempted. `TestEmailAdapter` is an in-memory capture used by every
+test in this milestone, satisfying the kickoff's explicit "do not send
+real customer email during automated tests; use test adapters"
+instruction. Swapping in a real ESP later is a one-file change (a new
+`EmailAdapter` implementation) with no change to the queue consumer,
+resolver, or any test.
+**Status**: adopted. Choosing and wiring a real ESP is an open decision
+for a future milestone, tracked the same way ADR-003's Vault decision is.
+
+## ADR-042: pgmq/pg_cron best-effort enabled like PostGIS; queue access goes through narrow wrapper functions, not pgmq directly
+
+**Context**: this is the first milestone that needs Supabase Queues/Cron.
+Neither `pgmq` nor `pg_cron` is installable in this project's local
+sandbox Postgres (no apt package for either, confirmed by attempting
+`create extension`), mirroring Milestone 4's PostGIS situation exactly —
+both extensions ship on real Supabase projects but not here. Separately,
+`pgmq`'s own functions (`pgmq.send`/`pgmq.read`/`pgmq.delete`/
+`pgmq.archive`) live in the `pgmq` schema, which PostgREST does not expose
+by default, and exposing raw queue primitives to any authenticated
+Postgres role would let a client bypass the dedupe/authorization logic
+this milestone depends on.
+**Decision**: both extensions are enabled with the same
+`do $$ ... exception when others $$` best-effort pattern as Milestone 4's
+PostGIS (ADR-032), with live `is_queue_available()`/`is_cron_available()`
+capability checks gating every code path that touches them — an
+environment without pgmq still runs `route_lead`, `accept_assignment`,
+etc. correctly; it just doesn't actually enqueue a message (the
+`integration_jobs` dedupe row is still written, so the business-logic
+idempotency guarantee holds regardless of queue availability). Queue
+access from TypeScript goes through three narrow `SECURITY DEFINER`
+wrapper functions —`dequeue_assignment_notifications`,
+`ack_assignment_notification`, `fail_assignment_notification` — granted
+only to `service_role`, never `authenticated`/`anon`. This is also why
+`src/modules/notifications/**` and
+`src/app/api/internal/**` are the only additions to the ESLint
+service-role import allow-list this milestone: the notification consumer
+is an internal system process acting across organizations/users, not a
+request scoped to one caller, the same rationale already established for
+`src/modules/users`/`src/modules/imports` (ADR-020).
+**Status**: adopted. Local verification (real Postgres, no pgmq) confirms
+`route_lead` and friends still work end-to-end with `is_queue_available()`
+returning false; the pgmq-specific send/read/delete/archive calls
+themselves can only be exercised on a real Supabase project.
+
+## ADR-043: Notification idempotency has two layers — producer dedupe and consumer redelivery guard — and accepts pgmq's at-least-once semantics rather than chasing exactly-once
+
+**Context**: spec/kickoff requires "every queue message ... must be
+idempotent" and explicitly lists "repeated job delivery" as a required
+test scenario. pgmq, like most queue systems, is at-least-once: a message
+becomes invisible for a visibility-timeout window after being read, then
+reappears if never deleted — so a consumer that crashes after doing its
+work but before acknowledging will see that same message again.
+**Decision**: two independent guarantees, not one:
+
+1. **Producer-side dedupe** (prevents a _duplicate event_ from ever being
+   enqueued twice): `enqueue_assignment_notification` inserts into
+   `integration_jobs` with `on conflict (queue_name, dedupe_key) do
+nothing` before calling `pgmq.send` — e.g. calling `route_lead` twice
+   for an already-assigned lead never enqueues a second
+   `new_lead_assignment` notification, verified directly
+   (`tests/integration/milestone6-assignment-lifecycle.test.ts`,
+   "enqueue_assignment_notification is idempotent").
+2. **Consumer-side redelivery guard** (prevents _reprocessing the same
+   message_ after it was already fully handled):
+   `processAssignmentNotificationBatch` checks a `JobStatusChecker` before
+   doing any work and skips straight to acking if the job is already
+   `completed` — verified at the unit level with `TestJobStatusChecker`
+   (`tests/unit/notifications/process-assignment-notifications.test.ts`,
+   "repeated job delivery").
+   Neither guarantee, alone or combined, closes the one genuine race
+   inherent to at-least-once delivery: a crash between successfully sending
+   the email/recording the notification and calling `ack` (which is what
+   marks the job `completed`). In that narrow window a redelivered message
+   would still reprocess and could produce one extra notification row/email.
+   This is accepted as a documented, rare tradeoff rather than solved with a
+   more complex two-phase-commit-style design — an occasional duplicate
+   "you have a new lead" notification is a minor UX blemish, not a
+   correctness or safety issue (it never duplicates the underlying
+   assignment, which has its own unconditional database-level guarantee from
+   Milestone 5's ADR-038).
+   **Status**: adopted.
+
+## ADR-044: Notification retry schedule — exponential backoff, 5 attempts, then dead-letter
+
+**Context**: kickoff requirement 20 ("retry and dead letter behavior") and
+spec §41's job status lifecycle need a concrete schedule for the
+`assignment_notifications` queue specifically. Spec §43 only specifies a
+schedule for _webhook_ retries (1m, 5m, 30m, 2h, 12h) — a much longer
+window appropriate for an external endpoint that might be down for hours.
+Assignment notifications are internal and time-sensitive (the whole point
+is telling an agent about a lead quickly), so reusing the webhook schedule
+verbatim would be wrong.
+**Decision**: `fail_assignment_notification` uses a short exponential
+backoff — `least(60, 2^attempt)` minutes, i.e. 2m, 4m, 8m, 16m, capped at
+60m — and moves the job to `dead_letter` (archiving the pgmq message)
+after 5 attempts. A separate periodic `dead-letter-sweep` Cron job is
+deliberately _not_ added for this queue: unlike Milestone 8's future
+`crm_sync`/`outbound_webhooks` queues (which need a scan across many
+independently-scheduled `next_retry_at` values), `fail_assignment_
+notification` decides dead-letter status inline, synchronously, at the
+moment the final attempt fails — there is nothing left for a sweep to
+find.
+**Status**: adopted.
+
+## ADR-045: Manual assignment/reassignment share one core function; a `cancelled` assignment is not a decline signal
+
+**Context**: kickoff requirements 13-14 (administrator manual
+assignment/reassignment, spec §35 items 8-9) are nearly identical
+operations — the only difference is whether an active assignment already
+exists to supersede — and both need to record a different activity type
+(`manual_assignment` vs `manual_reassignment`) for the timeline. Separately,
+superseding an active assignment needs a status that will _not_ trigger
+Milestone 5's `PREVIOUSLY_DECLINED` exclusion the next time this lead is
+(re-)routed automatically — an admin overriding routing isn't the assignee
+declining the lead, and treating it as one would permanently and
+incorrectly exclude that user from ever receiving this lead again through
+normal routing.
+**Decision**: `manually_assign_or_reassign_lead(lead_id, user_id, team_id,
+activity_type)` is the single internal core (`service_role`-only),
+wrapped by two public, `authenticated`-granted RPCs —
+`manually_assign_lead`/`manually_reassign_lead` — that just supply the
+right `activity_type` literal. It transitions any existing active
+assignment to `'cancelled'`, a status Milestone 5's `compute_candidate_
+eligibility` deliberately does not check when computing the
+`PREVIOUSLY_DECLINED` exclusion (only `'declined'`/`'expired'` do).
+Authorization (org_admin, or a permitted team_manager when a team is
+specified) is enforced inside this core function itself, following the
+same pattern as `route_lead`/`accept_assignment` — never left to RLS alone
+for a write this consequential.
+**Status**: adopted. Verified directly against real Postgres: manual
+assignment sets `assignment_algorithm = 'manual'`, resolves any open
+`manual_review_items` for the lead, and records a `manual_assignment`
+activity (`tests/integration/milestone6-assignment-lifecycle.test.ts`,
+scenario 11).

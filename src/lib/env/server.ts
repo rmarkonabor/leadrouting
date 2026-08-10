@@ -28,6 +28,11 @@ const serverEnvSchema = z.object({
   CRM_REDIRECT_URI: z.url().optional(),
   GEOCODING_PROVIDER_KEY: z.string().optional(),
   WEBHOOK_ENCRYPTION_KEY: z.string().optional(),
+  // Shared secret Supabase Cron's pg_net HTTP calls must present to reach
+  // the internal queue-processing route below. Optional here (same
+  // incomplete-.env-during-development rationale as the vars above) but
+  // the route itself refuses to run without it configured.
+  CRON_SECRET: z.string().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
