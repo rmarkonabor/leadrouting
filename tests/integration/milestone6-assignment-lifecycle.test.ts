@@ -416,6 +416,62 @@ describe.skipIf(!TEST_DATABASE_URL)("Milestone 6 assignment lifecycle", () => {
     expect(activity.rows).toHaveLength(1);
   });
 
+  it("11a. manual assignment rejects a user_id that is not an active member of the lead's organization (production readiness audit finding)", async () => {
+    const leadId = nextLeadId();
+    await client.query(
+      `insert into public.leads (id, organization_id, first_name, email, lead_source_id) values ($1, $2, 'L', $3, $4)`,
+      [leadId, orgAId, "l-manual-foreign-user@x.test", sourceId],
+    );
+
+    // adminBId is a real user, but only a member of orgB — orgA's own
+    // admin (the caller here, per the still-active jwt claims set in
+    // beforeAll) must not be able to assign an orgA lead to them.
+    await expect(
+      client.query(`select public.manually_assign_lead($1, $2, $3)`, [
+        leadId,
+        adminBId,
+        teamId,
+      ]),
+    ).rejects.toThrow(/not an active member/);
+  });
+
+  it("11b. manual assignment rejects a user_id that does not exist at all", async () => {
+    const leadId = nextLeadId();
+    await client.query(
+      `insert into public.leads (id, organization_id, first_name, email, lead_source_id) values ($1, $2, 'L', $3, $4)`,
+      [leadId, orgAId, "l-manual-nonexistent-user@x.test", sourceId],
+    );
+
+    await expect(
+      client.query(`select public.manually_assign_lead($1, $2, $3)`, [
+        leadId,
+        "00000000-0000-4000-8000-00000000dead",
+        teamId,
+      ]),
+    ).rejects.toThrow(/not an active member/);
+  });
+
+  it("11c. manual assignment rejects a team_id that belongs to a different organization", async () => {
+    const leadId = nextLeadId();
+    const foreignTeamId = "00000000-0000-4000-8000-000000000b02";
+    await client.query(
+      `insert into public.leads (id, organization_id, first_name, email, lead_source_id) values ($1, $2, 'L', $3, $4)`,
+      [leadId, orgAId, "l-manual-foreign-team@x.test", sourceId],
+    );
+    await client.query(
+      `insert into public.teams (id, organization_id, name) values ($1, $2, 'Org B Team')`,
+      [foreignTeamId, orgBId],
+    );
+
+    await expect(
+      client.query(`select public.manually_assign_lead($1, $2, $3)`, [
+        leadId,
+        agent1Id,
+        foreignTeamId,
+      ]),
+    ).rejects.toThrow(/does not belong to this organization/);
+  });
+
   it("12. cross-organization access: an org_admin cannot read another organization's notifications or integration_jobs", async () => {
     await client.query("set local role authenticated");
     await client.query(

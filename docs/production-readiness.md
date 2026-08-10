@@ -1,226 +1,451 @@
-# Production Readiness (Milestone 9)
+# Production Readiness Audit
 
-Per `docs/implementation-plan.md` Milestone 9's definition of done: "all
-release-blocking tests pass; no unresolved critical security issue
-remains; preview deployments work; Sentry receives production-style
-errors with no personal information; database migrations have been
-reviewed against the reversibility policy; pilot customers can be
-onboarded safely; all quality gates pass." This document is the single
-place that status is recorded, honestly — including the items that are
-still open and need the user's action, not glossed over as done.
+Performed immediately before any live customer data enters the
+application, per explicit instruction. Scope: audit only — no new product
+features. This document is the single source of truth for go/no-go
+status; it does not soften or omit findings to look more finished than
+the system actually is.
 
-## 1. Automated verification completed this milestone
+**Verdict: NOT YET READY for live customer data.** Two release-blocking
+issues were found and fixed in code during this audit (a real cross-tenant
+authorization gap, and a missing-privileges bug that would break the app
+for every real user) — both fixes exist only as unapplied migration files
+until someone with access to the linked Supabase project runs them. One
+further release-blocking item (database backups) cannot be fixed by
+engineering work at all; it requires a business decision. See §31 for the
+complete blocker list.
 
-| Item                                                       | Status                                                       | Where                                                                                                                                                       |
-| ---------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Migration reversibility review (all 11 migration files)    | Done                                                         | `docs/database-schema.md` §22.1                                                                                                                             |
-| CI: integration tests + dependency vulnerability scan      | Done                                                         | `.github/workflows/ci.yml`                                                                                                                                  |
-| Security review against `security-model.md` §9 known risks | Done                                                         | `docs/security-model.md` §9.1, §7.1                                                                                                                         |
-| Tenant isolation review (full suite, one shared database)  | Done — 60/60 tests passing together                          | `tests/integration/README.md` "Milestone 9 tenant-isolation re-verification"                                                                                |
-| Concurrency review (higher parallelism)                    | Done — **found and fixed a real round-robin race condition** | `docs/decisions.md` ADR-056, `supabase/migrations/20260813080000_milestone9_routing_state_race_fix.sql`, `tests/integration/milestone9-concurrency.test.ts` |
-| Sentry sanitization pass (production-shaped events)        | Done                                                         | `docs/security-model.md` §7.1, `tests/unit/sentry-sanitize.test.ts`                                                                                         |
-| Data export and deletion runbooks                          | Done                                                         | `docs/data-export-and-deletion-runbook.md`                                                                                                                  |
-| Playwright critical journeys (all 6, automated)            | Done                                                         | `tests/e2e/README.md` "Milestone 9 critical journeys"                                                                                                       |
-| Full quality gates (format/lint/typecheck/test/build)      | Done                                                         | this milestone's own commits                                                                                                                                |
+## How to read this document
 
-## 2. Backups — known, accepted gap (confirmed by the user)
+Each of the 30 requested checks below is classified:
 
-**Status: not available.** The linked Supabase project is on the free
-tier, which does not include automatic backups or point-in-time recovery
-(PITR) — this was confirmed directly by the user during this milestone,
-not assumed. Spec §52 item 16 ("database backups") is therefore **not
-met** on the current project tier.
+- **Release blocking** — must not have live customer data until resolved.
+- **High priority** — must be resolved before pilot, not before a
+  from-scratch build restart.
+- **Medium priority** — should be resolved before pilot; not a hard gate.
+- **Low priority** — cosmetic/documentation-only gaps.
+- **Verified — no issue** — checked and found sound.
 
-- No workaround is implemented in Phase 1 code — there is no application-
-  level backup mechanism, and building one would be exactly the kind of
-  unapproved scope CLAUDE.md rule 3 exists to prevent.
-- The only real mitigation is upgrading the Supabase project to a paid
-  tier with backups/PITR enabled, which is a billing/business decision for
-  the user to make, not an engineering task.
-- Until that happens, any data-loss incident (accidental deletion, a bad
-  migration, a provider-side incident) has **no recovery path**. This risk
-  is accepted and documented here rather than hidden — see
-  `docs/security-model.md` §9's known-risks table for the corresponding
-  row.
+## 1. Phase 1 specification coverage
 
-**Action needed from the user**: decide whether to upgrade the Supabase
-project tier before real pilot traffic, given this gap.
+**Verified — no issue**, with **Low priority** cleanup applied.
+`docs/specification-coverage.md` traces every Phase 1 scope item (spec
+§5), acceptance criterion (§56), and excluded item (§6) to its module,
+table, action, and test. Three rows describing Milestone 9 deliverables
+were stale ("Planned" for work that is now actually done) — corrected as
+part of this audit. Two rows were downgraded from "Planned" to "Needs
+Clarification" because they describe things this session could not
+independently verify (see §21, §29) rather than things that are simply
+unbuilt. No item from the spec's "Explicitly Excluded Scope" list
+(calling, SMS, scheduling, marketing automation, a full CRM, a visual
+pipeline, AI routing/qualification/summaries, lead auctions,
+multi-workspace orgs) has been built — confirmed by re-reading that
+section against the actual module list in `src/modules/`.
 
-## 3. Separate development/preview/production environments — needs confirmation
+## 2. Tenant isolation
 
-Spec §52 item 17 requires separate dev/preview/production environments and
-env var sets, "actually configured in Vercel + Supabase, not just
-documented." `docs/setup.md` §6 documents _how_ to configure Sentry env
-vars per-environment in Vercel, and the codebase's own env validation
-(`src/lib/env`) supports different values per environment, but this
-milestone has not independently verified that:
+**Verified — no issue**, except see §4's release-blocking finding, which
+is a tenant-isolation issue in substance (cross-org data exposure via
+manual assignment) even though it's filed under "server authorization"
+below since that's its root cause. Every tenant table carries
+`organization_id`; `organization_id` is never trusted from the client
+(resolved server-side via `getCurrentOrganization`); the full
+`tests/integration` suite (66 tests across 9 files, after this audit's
+additions) passes together against one shared, fully-migrated database,
+confirming no later migration regressed an earlier one's isolation
+guarantees (`tests/integration/README.md`).
 
-- A separate Supabase project (or at minimum a separate schema/branch)
-  exists for local/preview vs. the production project, so preview
-  deployments and pilot data never share a database.
-- Vercel's environment variables are actually scoped per-environment
-  (Development / Preview / Production checkboxes on each variable), not
-  all set to the same values.
+## 3. Row Level Security
 
-**Action needed from the user**: confirm this is actually configured, or
-have it configured, before pilot traffic. This cannot be verified from
-inside this session — it requires looking at the real Vercel and Supabase
-project dashboards.
+**Verified — no issue.** Every one of the 44 tables created across all 13
+migrations has `enable row level security` — confirmed by diffing the
+full list of `create table public.*` statements against the full list of
+`alter table ... enable row level security` statements; the sets match
+exactly, zero tables missing RLS.
 
-## 4. Sentry — needs a real verification pass
+## 4. Server authorization
 
-`docs/setup.md` §6 has full walkthrough instructions
-(get credentials → add to Vercel → deploy a preview → trigger a real
-browser and server error → confirm they arrive in Sentry with source maps
-and zero personal fields). This milestone's sanitizer review
-(§7.1 above) confirms the _code_ strips personal data correctly against
-representative event shapes, but per the Milestone 9 plan's own manual-
-verification step, someone still needs to:
+**RELEASE BLOCKING — found and fixed.** `manually_assign_or_reassign_lead`
+(backing both `manually_assign_lead` and `manually_reassign_lead`) checked
+that the _caller_ was an `org_admin` or permitted `team_manager`, but
+never checked that the _target_ `user_id` (or optional `team_id`) actually
+belonged to the lead's own organization. An org_admin of organization A
+could submit any UUID — a real user or team from organization B, or a
+value matching nothing — and the function would still create the
+assignment and fire a notification targeting it. RLS protects the lead's
+own row from being read back by the foreign user, but the notification
+itself (title/body describing the lead) is a direct write, not something
+RLS gates. See `docs/decisions.md` ADR-058 for full detail.
 
-1. Confirm a real Sentry DSN is configured in Vercel (not left as a
-   placeholder).
-2. Trigger a real browser and server error against a real preview
-   deployment and confirm both arrive in the Sentry dashboard with
-   `environment: preview`, readable stack traces, and no personal fields
-   (name, email, phone, address, message, consent text, custom variable
-   values) anywhere in the event.
+**Fix**: `supabase/migrations/20260813100000_validate_manual_assignment_org_membership.sql`
+adds explicit membership/ownership checks before any mutation. Three new
+tests (`tests/integration/milestone6-assignment-lifecycle.test.ts`
+11a/11b/11c) confirm the fix — each one **fails against the pre-fix
+function** and **passes with the fix applied**, proving the tests exercise
+real behavior. Full suite: 66/66 passing with the fix in place.
 
-**Action needed from the user**: run through `docs/setup.md` §6.3–§6.6
-once against a real preview deployment, or confirm it was already done.
+**This migration has not yet been applied to any linked project** — it
+exists only as a file in this branch. See §31.
 
-## 5. Playwright critical journeys — automated, manual walk still pending
+Every other server-authorization path was re-checked and found sound:
+`requireOrgContext`/`requireOrgAdminContext` resolve the organization from
+verified membership, never a client-supplied value; `getVerifiedUser()`
+(never `getSession()`) is the only path into authorization decisions
+(`docs/decisions.md` ADR-010); the routing engine's own candidate
+selection (`route_lead`) derives eligible users from scoped
+`organization_users`/`team_users` queries, not free-text input, so it
+isn't vulnerable to the same class of bug as the manual-assignment path.
 
-All six critical journeys (`docs/testing-strategy.md` §3b) are now
-automated in `tests/e2e/` (see §1 above and `tests/e2e/README.md`). Per
-the Milestone 9 plan's own manual-verification step ("walk all six
-Playwright critical journeys manually once against a preview deployment
-before automating them, to catch anything the script wouldn't"), a human
-should still walk all six by hand at least once against a real preview
-deployment — automation catches regressions, not the first-time UX
-issues a script wasn't written to notice.
+## 5. Secret handling
 
-**Action needed from the user**: either walk the six journeys manually
-(dashboard → invite → team/territory/flow → intake → notification →
-manual review → cross-org check, using two real organizations), or
-explicitly delegate that walkthrough and report back what was found.
+**Verified — no issue.** `SUPABASE_SECRET_KEY` is referenced only in
+`src/lib/env/server.ts` and `src/lib/supabase/service-role.ts`; every
+other file that imports the service-role client is on the ESLint
+`no-restricted-imports` allow-list (`eslint.config.mjs`) — checked every
+file matching `service-role`/`service_role`/`createServiceRoleClient` in
+`src/` and confirmed each match reachable from the allow-listed directory
+list, or was a comment (not an actual import). No job in
+`.github/workflows/ci.yml` contains a real secret — every env var there is
+a hardcoded, non-sensitive placeholder (`docs/branch-protection.md`
+confirms this and documents the `${{ secrets.NAME }}` pattern for any
+future real one).
 
-## 6. Vercel Preview / Production deployment
+## 6. Supabase publishable key usage
 
-**Verified directly against the real Vercel project's deployment
-history** (`leadrouting`, via the Vercel API), not assumed:
+**Verified — no issue.** `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is the
+only Supabase key ever bundled to the browser (CLAUDE.md rule 5); it is
+safe to expose by design (RLS is the real gate on what it can read/write).
 
-- **Preview deployments for branches: confirmed.** Every push to a
-  `milestone/*` feature branch in this project's history produced its own
-  deployment with a branch-scoped alias (e.g.
-  `leadrouting-git-milestone-09-produ-...vercel.app`) and `target: null`
-  (Vercel's Preview classification) — this happened automatically through
-  the GitHub integration for every one of Milestones 5 through 9's
-  branches, with no manual trigger.
-- **Production deployment restricted to the production branch: confirmed.**
-  Every deployment in this project's history with `target: "production"`
-  has `githubCommitRef: "main"` — there is no example of a
-  `target: "production"` deployment originating from any other branch.
-  This is enforced by the Vercel project's own **Production Branch**
-  setting (Project Settings → Git), currently `main`, not by anything in
-  this repository's GitHub Actions workflow.
-- **Production deployment is explicitly not part of this milestone's
-  verification**, per CLAUDE.md rule 13 and the Milestone 9 plan's own
-  text: "do not actually deploy to production as part of this milestone's
-  verification unless the user explicitly approves it." No production
-  deploy has been made or requested as part of this work.
-- **Observation, not something this session investigated or fixed**:
-  several of the historical `target: "production"` deployments in this
-  project ended in `state: "ERROR"`. Diagnosing/fixing that is outside
-  this CI/deployment-safety-checks scope ("implement CI checks only") —
-  flagged here so it isn't missed before relying on production deploys
-  working cleanly.
+## 7. Supabase secret key isolation
 
-**Action needed from the user**: confirm a Preview deployment for this
-branch builds and serves correctly, and give explicit approval before any
-production deploy. See `docs/branch-protection.md` for the required
-GitHub-side branch protection settings (separate from, and complementary
-to, Vercel's own production-branch restriction described above).
+**Verified — no issue.** Same finding as §5/§6: `SUPABASE_SECRET_KEY`
+never crosses into a client-reachable file, enforced by the ESLint
+import-boundary rule as a build-time check, not just a convention.
 
-## 7. Concurrency fix — read this before merging
+## 8. Routing transactions
 
-This milestone's concurrency review found and fixed a genuine bug (not a
-test artifact): `compute_routing_decision`'s round-robin locking took no
-lock on the very first assignment ever made for a team+flow, because
-`SELECT ... FOR UPDATE` against zero matching rows locks nothing. Under
-real concurrent load this could produce two candidates being awarded the
-"first" round-robin slot simultaneously. See `docs/decisions.md` ADR-056
-for the full root cause and fix
-(`supabase/migrations/20260813080000_milestone9_routing_state_race_fix.sql`).
-This migration must be applied to the linked project the same way every
-other migration is (`supabase db push` or the SQL Editor — see CLAUDE.md
-rule 10; this session cannot apply it directly).
+**Verified — no issue** (after the fix already delivered in the
+concurrency review). `route_lead`, `accept_assignment`,
+`decline_assignment`, `expire_assignment`, and `reassign_lead` are each
+single-transaction `SECURITY DEFINER` Postgres functions (CLAUDE.md rule 21) — never a multi-request client-orchestrated flow. `route_lead` locks
+the `leads` row first (`SELECT ... FOR UPDATE`) to serialize concurrent
+calls for the same lead, and locks `routing_state` narrowly (only at the
+moment a round-robin pick is made) per `docs/decisions.md` ADR-038.
 
-## 7a. URGENT: missing table-level grants — likely affects the live app right now
+## 9. Assignment uniqueness
 
-While wiring up real CI (turning on `supabase start` + the integration
-suite in actual GitHub Actions for the first time), every integration
-test failed with `permission denied for table ...`. Root cause: **no
-migration across Milestones 1–9 ever granted table-level privileges to
-the `authenticated` Postgres role** — every table's access has relied
-entirely on RLS policies, but Postgres checks the table-level `GRANT`
-before it ever evaluates an RLS policy. `supabase/config.toml`'s own
-`auto_expose_new_tables` setting confirms this isn't a CI-only quirk:
-newly created tables are **not** auto-exposed to
-`anon`/`authenticated`/`service_role` by default anymore ("the new cloud
-default") — a behavior Supabase used to provide automatically and no
-longer does. See `docs/decisions.md` ADR-057 for full detail.
+**Verified — no issue.** A partial unique index,
+`assignments_one_active_per_lead_idx on assignments(lead_id) where status
+in ('pending','notified','viewed')`, is the actual database-level
+guarantee — not just application-level convention. `route_lead`'s insert
+is wrapped in `exception when unique_violation`, re-selecting and
+returning the assignment the other concurrent transaction actually
+created rather than erroring.
 
-**This most likely means the currently-linked Supabase project has the
-same gap**, since it was set up the same way (migrations only, no manual
-grants) — if so, every authenticated user of the deployed app is
-currently getting `permission denied` on ordinary reads/writes, not just
-this session's CI run.
+## 10. Round robin concurrency
 
+**RELEASE BLOCKING — found and fixed** (in an earlier phase of this same
+production-readiness effort, re-verified here). `compute_routing_decision`
+took no lock on the very first assignment ever made for a team+flow,
+because `SELECT ... FOR UPDATE` against a query matching zero rows locks
+nothing — multiple concurrent `route_lead` calls landing on that
+"no row yet" state could all pick the same first candidate. See
+`docs/decisions.md` ADR-056.
+**Fix** (already delivered, already merged into this branch's history):
+`supabase/migrations/20260813080000_milestone9_routing_state_race_fix.sql`
+inserts a zeroed row (`on conflict do nothing`) immediately before the
+lock, so the lock always has a real row to serialize on, including for
+the very first assignment.
+**Re-verified this audit**: `tests/integration/milestone9-concurrency.test.ts`
+(60 genuinely concurrent leads → exact 12/12/12/12/12 split; 25 concurrent
+calls on one lead → exactly one `assigned`; 20 concurrent
+`simulate_routing` calls racing 10 real `route_lead` calls → simulated
+lead never assigned, cursor advances by exactly 10) — 3/3 passing.
+
+## 11. Queue idempotency
+
+**Verified — no issue.** `integration_jobs` has a unique constraint on
+`(queue_name, dedupe_key)` — the producer-side dedupe guarantee. The
+notification consumer additionally uses `JobStatusChecker` as a
+consumer-side redelivery guard (`docs/decisions.md` ADR-043): a redelivered
+message whose side effects already completed is acked without reprocessing.
+`tests/unit/notifications/process-assignment-notifications.test.ts` and
+`tests/unit/integrations/process-crm-sync.test.ts` both include an explicit
+redelivery-idempotency test.
+
+## 12. Cron idempotency
+
+**Verified — no issue.** `run_expire_assignments` re-running on an
+already-expired assignment is a no-op (covered in
+`tests/integration/milestone6-assignment-lifecycle.test.ts`, scenario 8/9);
+the drain-retry Cron jobs (`drain_integration_retries`) operate on the
+same `integration_jobs` ledger with `next_retry_at`/`attempt_count`
+guards, so a re-run before the retry window elapses picks up nothing.
+
+## 13. Webhook signatures
+
+**Verified — no issue.** `modules/webhooks/signing.ts` computes an
+HMAC-SHA256 signature over the exact outgoing payload; delivery includes
+the signature header; `tests/unit/webhooks/signing.test.ts` verifies
+tamper-detection (a modified payload fails verification even with the
+correct secret) and that different secrets produce non-matching
+signatures.
+
+## 14. Replay protection
+
+**Verified — no issue.** `webhook_deliveries` has a unique constraint on
+`(webhook_endpoint_id, event_id)` for idempotent, replay-safe delivery.
+Inbound CRM webhooks use `timingSafeEqual` for signature comparison
+(`http-crm-adapter.ts`) to avoid timing side-channels, and every dedupe
+key across the integration system follows the same `(queue_name,
+dedupe_key)`-shaped pattern.
+
+## 15. CRM duplicate prevention
+
+**Verified — no issue.** `external_record_links` has a unique constraint
+on `(provider, organization_id, external_record_id)`. The "duplicate-CRM-
+record regression" test (`tests/unit/integrations/process-crm-sync.test.ts`)
+retries the same `sync_contact` job three times and confirms exactly one
+`external_record_links` row and one CRM contact are ever created — the
+second/third attempts PATCH the existing record rather than creating a
+new one.
+
+## 16. Personal information in logs
+
+**Verified — no issue.** `src/modules/integrations/redact.ts` builds
+`request_summary`/`response_summary` structurally safe: only method, a
+query-string-stripped URL, and field _names_ (never values) are ever
+recorded. No application code path logs a raw request or lead payload
+outside this pattern (grepped for direct `console.log`/logger calls
+against lead/request objects — none found).
+
+## 17. Personal information in Sentry
+
+**Verified — no issue**, with **one documented, accepted limitation**.
+`src/lib/sentry/sanitize.ts`'s `sentryBeforeSend` strips `event.user`,
+`request.cookies`, `request.data`, `event.extra`, and any
+`event.contexts`/breadcrumb data outside a small allow-list of Sentry's
+own technical context names, and allow-lists `event.tags` to
+`SENTRY_ALLOWED_TAG_KEYS` (`organization_id`, `lead_id`, `assignment_id`,
+`routing_flow_id`, `routing_flow_version_id`, `source_id`, `job_id`,
+`integration_provider`) — everything else in tags is dropped. Re-verified
+this audit against Milestone 6-8 event shapes (CRM sync payloads, webhook
+deliveries, notification emails) — all stripped correctly
+(`tests/unit/sentry-sanitize.test.ts`, "Milestone 9 production-shaped
+event review"). **Documented limitation** (Low priority, not blocking):
+the regex-based secret-scrubbing fallback for exception _messages_ doesn't
+match an arbitrary vendor-shaped credential (e.g. `at_live_...`) — this is
+explicitly the defense-in-depth layer, not the primary control; the
+primary control (`redact.ts`, above) never puts a credential value into a
+message in the first place, verified by code inspection of
+`http-crm-adapter.ts`.
+
+## 18. Source map configuration
+
+**MEDIUM PRIORITY — found and fixed.** `next.config.ts`'s Sentry plugin
+config uploaded source maps but never explicitly deleted them from the
+build output afterward. Next's own default
+(`productionBrowserSourceMaps` unset/false) already prevents Next itself
+from serving them publicly, so this was not an active exposure, but
+relying on that alone left generated `.map` files sitting in build output
+where a future config change or build-artifact leak could expose them.
+**Fix**: added `sourcemaps: { deleteSourcemapsAfterUpload: true }` —
+verified with a full `npm run build`, which still succeeds.
+
+## 19. Error alerts
+
+**MEDIUM PRIORITY — cannot be verified or configured from this session.**
+Sentry alert rules (e.g. "notify on new issue," "notify on error-rate
+spike") are configured in the Sentry project dashboard, not in this
+codebase — there is nothing in `next.config.ts`/`instrumentation.ts` that
+could enforce them, and this session has no access to the Sentry
+dashboard to check or set them. **Action needed from the user**: confirm
+at least one alert rule exists in the Sentry project (e.g. "email/Slack on
+every new issue") before pilot traffic — otherwise a production error
+could go unnoticed until a customer reports it.
+
+## 20. Database migrations
+
+**RELEASE BLOCKING — found and fixed.** No migration across Milestones
+1-9 ever granted table-level privileges to the `authenticated`/
+`service_role` Postgres roles — every table's access relied entirely on
+RLS, but Postgres checks the table-level `GRANT` _before_ RLS is ever
+evaluated. `supabase/config.toml`'s own `auto_expose_new_tables` setting
+confirms new tables are not auto-exposed by default anymore ("the new
+cloud default") — a behavior Supabase used to provide automatically. This
+surfaced only once real CI ran `supabase start` + the integration suite
+for the first time; every prior local sandbox verification had these
+grants applied by hand, outside any migration file. See
+`docs/decisions.md` ADR-057.
 **Fix**: `supabase/migrations/20260813090000_grant_table_privileges_to_data_api_roles.sql`
 grants the missing privileges and sets default privileges for future
-tables. **This should be applied to the linked project immediately**,
-independent of whether the rest of this PR chain has merged — it is
-purely additive (no table/column/constraint change) and does not weaken
-tenant isolation (RLS is still the real enforcement layer; see ADR-057
-for why `audit_logs`'s missing UPDATE/DELETE policy, for example, still
-blocks those commands regardless of this grant).
+tables. Verified against a from-scratch Postgres instance with zero manual
+workaround grants: the full 63-test (now 66-test, after this audit's
+additions) suite passes.
+**Status on the linked project**: per the user, this migration has
+already been applied. **Action needed**: confirm with a real authenticated
+request (e.g. load the dashboard) that this actually resolved cleanly.
 
-**Action needed from the user**: apply this migration to the linked
-project as soon as possible, and if the app is already live for real
-users, verify with a real authenticated request that basic reads/writes
-(e.g. loading the dashboard, viewing a lead) actually work — this may
-explain any "permission denied" reports if the app has been in use.
+Migration reversibility itself remains sound: every migration across all
+13 files is additive-only (`docs/database-schema.md` §22.1/second
+addendum) — the two release-blocking fixes in this audit are both
+`CREATE OR REPLACE FUNCTION`/`GRANT` statements, never a destructive
+schema change.
 
-## 8. Manual verification checklist (for the user / whoever runs this before pilot)
+## 21. Backup plan
 
-- [ ] Decide on the Supabase free-tier backups gap (§2) — accept the risk
-      or upgrade the project tier.
-- [ ] Confirm separate dev/preview/production environments and env vars
-      are actually configured, not just documented (§3).
-- [ ] Confirm a real Sentry DSN is configured and verify a real error
-      reaches it with zero personal fields (§4).
-- [ ] Walk all six Playwright critical journeys by hand against a preview
-      deployment (§5).
-- [ ] Confirm a Preview deployment for this branch builds and serves
-      correctly.
-- [ ] **Urgent** — apply
-      `20260813090000_grant_table_privileges_to_data_api_roles.sql` to the
-      linked project (§7a) and confirm real authenticated reads/writes
-      work; this may already be causing `permission denied` errors for
-      real users of the deployed app.
-- [ ] Apply `20260813080000_milestone9_routing_state_race_fix.sql` (and
-      every other pending migration) to the linked project.
-- [ ] Explicitly approve before any production deployment (CLAUDE.md
-      rule 13) — not implied by any of the above.
+**RELEASE BLOCKING — cannot be fixed by engineering work.** The linked
+Supabase project is on the free tier, which has no automatic backups or
+point-in-time recovery. This was confirmed directly by the user, not
+assumed. There is no code-level workaround — building one would itself be
+out-of-scope, unapproved product surface. See `docs/backup-and-restore.md`
+for exactly what this means operationally and what upgrading would look
+like. **This is a business decision (upgrade the Supabase project tier,
+or explicitly accept the risk of zero recovery), not something resolved
+by this or any future engineering pass.**
 
-## 9. Definition of done — self-assessment
+## 22. Data export
 
-| Criterion                                                            | Met?                                                                                                                                                                          |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| All release-blocking tests pass                                      | Yes — all 6 (§54) pass, including the concurrency fix                                                                                                                         |
-| No unresolved critical security issue remains                        | Yes, within this milestone's own scope — see §9.1 re-verification in `security-model.md`. The backups gap (§2) is a known, accepted operational limitation, not a code defect |
-| Preview deployments work                                             | Not verified in this session — needs the user (§6)                                                                                                                            |
-| Sentry receives production-style errors with no personal information | Code-level: yes (§1). Live verification: needs the user (§4)                                                                                                                  |
-| Database migrations reviewed against the reversibility policy        | Yes — `docs/database-schema.md` §22.1                                                                                                                                         |
-| Pilot customers can be onboarded safely                              | Conditional on §8's checklist being completed by the user first                                                                                                               |
-| All quality gates pass                                               | Yes — format/lint/typecheck/unit+integration tests/build all green as of this milestone's commits                                                                             |
+**Verified — no issue.** `docs/data-export-and-deletion-runbook.md` §2
+documents the operational procedure: verify the requester, export every
+tenant table scoped by `organization_id` via `\copy`, package and deliver
+securely, record the export in `audit_logs`. Deliberately not a
+self-service UI action in Phase 1, per spec's own scope for this
+milestone.
+
+## 23. Data deletion
+
+**Verified — no issue.** Same runbook, §3: every tenant table cascades
+from `organizations` via `organization_id ... on delete cascade`
+(verified against the full table list), so a single `delete from
+organizations where id = ...` removes exactly one organization's data and
+nothing else. Requires explicit approval and an export-first step by
+policy, not a UI action.
+
+## 24. Rate limiting
+
+**Verified — no issue.** `check_and_increment_intake_rate_limit` is a
+DB-backed counter function, called from `process-submission.ts` with a
+per-source configurable window/max-requests, wired into the live intake
+path (`POST /api/v1/intake/[sourceToken]`) — confirmed by tracing the
+actual call site, not just the function's existence.
+
+## 25. Input validation
+
+**Verified — no issue.** Zod schemas validate input across the modules
+that need static, well-known shapes (17 of 27 modules import `zod`
+directly). The remaining modules either have no meaningful user input
+(read-only list/display modules — `activities`, `dashboard`,
+`routing-health`, etc.) or validate through a purpose-built mechanism more
+appropriate than a static schema: lead intake's field values are
+org-configured and dynamic, so `validateLeadFields`
+(`modules/lead-intake/validate-lead-fields.ts`) validates each field
+against its own field-mapping's `required`/type rules rather than one
+fixed Zod object — confirmed this is real, working validation (required
+fields, email/phone format, max length), not a gap.
+
+## 26. Audit logs
+
+**Verified — no issue.** `audit_logs` is insert-and-select only — no
+migration grants or RLS policy allows `UPDATE`/`DELETE` on it (confirmed
+by re-reading its RLS policies: only `audit_logs_insert_self_action` and
+`audit_logs_select_org_admin` exist). `logAuditEvent` is called from every
+mutating module action for the events spec §46 requires.
+
+## 27. Dependency vulnerabilities
+
+**Verified — no issue.** `npm audit --audit-level=high` reports 0
+vulnerabilities as of this audit, and runs on every PR
+(`.github/workflows/ci.yml`).
+
+## 28. Vercel environment separation
+
+**Partially verified — Medium priority, needs manual confirmation.**
+Verified directly against the real `leadrouting` Vercel project's
+deployment history via the Vercel API: every push to a `milestone/*`/
+feature branch produces its own Preview deployment; every
+`target: "production"` deployment in the project's history originates
+from `main`, with no exception. **Not verifiable from this session**:
+whether environment variables are actually scoped differently per
+environment (Development/Preview/Production checkboxes on each variable
+in the Vercel dashboard) — there is no tool available here to list a
+project's environment variables. **Action needed from the user**: confirm
+in the Vercel dashboard that env vars are genuinely scoped per
+environment, not all set to the same values.
+
+## 29. Development, preview, and production separation
+
+**HIGH PRIORITY — cannot be verified from this session.** Whether a
+genuinely separate Supabase project (not just a separate schema, and
+definitely not the same project) backs local/preview development versus
+the production project could not be checked — this session has no
+Supabase account access, only the linked project's connection details
+supplied for migration application. If preview deployments and real pilot
+data currently share one Supabase project, that is a serious risk (a
+developer's preview testing could touch, or a bug in preview could
+corrupt, real customer data). **Action needed from the user**: confirm
+this explicitly, or set it up before pilot traffic if it isn't already
+separate.
+
+## 30. Playwright coverage for critical flows
+
+**Verified as automated — Medium priority, not yet run live.** All six
+critical journeys from `docs/testing-strategy.md` §3b are automated in
+`tests/e2e/` (`org-invite-activate.spec.ts`,
+`team-territory-routing-publish.spec.ts`, `intake-to-accept.spec.ts`,
+`expiration-reassignment.spec.ts`, `manual-review-assignment.spec.ts`,
+`cross-tenant-isolation.spec.ts`) — confirmed via `npx playwright test
+--list`, which shows all 17 tests (6 new + the Milestone 7 slice)
+registering correctly. **They have not been run against a real deployed
+app** — this sandbox has no live Supabase project or running app instance
+to point them at. **Action needed from the user**: run `npm run test:e2e`
+against a real preview deployment (see `tests/e2e/README.md` for required
+env vars) before pilot traffic, and/or walk the six journeys by hand once,
+per the Milestone 9 plan's own manual-verification step.
+
+## 31. Complete list of remaining release blockers
+
+1. **Apply `20260813100000_validate_manual_assignment_org_membership.sql`**
+   to the linked Supabase project (§4) — fixes the cross-tenant manual-
+   assignment authorization gap. Not yet applied anywhere.
+2. **Confirm `20260813090000_grant_table_privileges_to_data_api_roles.sql`
+   actually resolved cleanly** (§20) — the user reports it was applied;
+   verify with a real authenticated request.
+3. **Database backups (§21)** — no automatic backups on the current
+   Supabase free-tier project. Requires a business decision (upgrade tier
+   or explicitly accept zero recovery) before real customer data enters
+   the system. This cannot be closed by any engineering fix.
+4. **Confirm dev/preview/production Supabase project separation (§29)** —
+   could not be verified from this session; if not actually separate, this
+   is also effectively release blocking (preview activity could touch real
+   data).
+
+None of these four are optional polish — each represents a real path to
+either data loss, cross-tenant exposure, or an unusable app for real
+users. **Do not point real customer data at this system until all four
+are resolved or explicitly, knowingly accepted by the person responsible
+for that decision.**
+
+## 32. High/Medium/Low priority items (non-blocking, should still be resolved before pilot)
+
+- **High**: dev/preview/production Supabase separation confirmation (§29,
+  also listed as a blocker above since its answer could make it one).
+- **Medium**: confirm Sentry alert rules exist (§19); confirm Vercel env
+  vars are actually scoped per environment (§28); run the Playwright
+  critical journeys against a real deployment (§30).
+- **Low**: the Sentry regex-fallback limitation for arbitrary vendor
+  credential shapes (§17) — accepted, primary control already covers it.
+
+## See also
+
+- `docs/deployment-runbook.md` — exact manual deployment steps.
+- `docs/incident-response.md` — what to do when something goes wrong in
+  production.
+- `docs/backup-and-restore.md` — the backups gap in full detail, and what
+  restore would look like if backups existed.
+- `docs/pilot-checklist.md` — the condensed go/no-go checklist derived
+  from this audit.
+- `docs/data-export-and-deletion-runbook.md` — organization data export
+  and deletion procedures (spec §52 items 20-21).
+- `docs/branch-protection.md` — required GitHub branch protection
+  settings (not yet applied by a repo admin).
