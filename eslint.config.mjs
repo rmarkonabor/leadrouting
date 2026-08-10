@@ -34,6 +34,8 @@ const eslintConfig = defineConfig([
       "src/modules/users/**",
       "src/modules/imports/**",
       "src/modules/notifications/**",
+      "src/modules/integrations/**",
+      "src/modules/webhooks/**",
       "src/app/api/internal/**",
     ],
     rules: {
