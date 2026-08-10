@@ -1309,3 +1309,49 @@ concurrency tests fail — routing concurrency failures are release
 blocking," this was root-caused and fixed rather than the test being
 loosened.
 **Status**: adopted.
+
+## ADR-057: Grant table-level privileges to `authenticated`/`service_role` explicitly — no migration ever did, and Supabase no longer does it for you
+
+**Context**: the CI/deployment-safety-checks PR turned on `supabase
+start` + the full `tests/integration` suite in real GitHub Actions for the
+first time (prior verification of this suite ran ad hoc against a
+hand-provisioned local Postgres instance in a sandbox, not the actual
+Supabase CLI). Every integration test file failed immediately with
+`permission denied for table <name>`. Root cause:
+`supabase/config.toml`'s own `auto_expose_new_tables` setting documents
+that newly created public-schema tables are **no longer** automatically
+granted to the `anon`/`authenticated`/`service_role` Data API roles —
+"the new cloud default" is to require an explicit `GRANT`. No migration
+across Milestones 1–9 ever issued one; every table's access has relied
+entirely on RLS policies, which Postgres never even reaches without the
+underlying table-level privilege existing first. This was invisible in
+every prior local sandbox verification because that sandbox's Postgres
+instance had grants applied by hand, once, outside any migration file —
+worked around, never actually fixed.
+**Decision**: `20260813090000_grant_table_privileges_to_data_api_roles.sql`
+grants `SELECT, INSERT, UPDATE, DELETE` on every existing table to
+`authenticated` and `service_role`, and sets
+`ALTER DEFAULT PRIVILEGES ... GRANT ... ON TABLES` so any table created by
+a future migration gets the same grants automatically. `anon` receives no
+table grants at all: every pre-auth code path (lead intake, inbound CRM
+webhooks) calls a `SECURITY DEFINER` function via RPC rather than
+querying a table directly (ADR-011, ADR-055), and a `SECURITY DEFINER`
+function runs with its owner's privileges, not the caller's — confirmed
+by grepping every `createAnonSupabaseClient` call site in `src/`, each of
+which only ever calls `.rpc(...)`.
+**Why this doesn't weaken tenant isolation or role scoping**: RLS remains
+the real enforcement layer. A table-level grant only removes the
+"Postgres denies the query before RLS is ever consulted" false negative;
+it does not grant access to any row or command RLS itself doesn't already
+allow. `audit_logs`, for example, has RLS policies for `SELECT` and
+`INSERT` only — no `UPDATE`/`DELETE` policy exists, so those commands
+still affect zero rows for every role, table-level grant or not, because
+Postgres RLS denies any command with no matching permissive policy. This
+is the same layered GRANT + RLS model Supabase's own documentation
+recommends, not a new pattern introduced here.
+**Verification**: applied against a fresh local Postgres instance with
+all 12 migrations and no manual workaround grants of any kind — the full
+`tests/integration` suite (63 tests across 9 files) passes cleanly, the
+same result previously achieved only with hand-applied, undocumented
+grants.
+**Status**: adopted.

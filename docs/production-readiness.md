@@ -155,6 +155,42 @@ This migration must be applied to the linked project the same way every
 other migration is (`supabase db push` or the SQL Editor — see CLAUDE.md
 rule 10; this session cannot apply it directly).
 
+## 7a. URGENT: missing table-level grants — likely affects the live app right now
+
+While wiring up real CI (turning on `supabase start` + the integration
+suite in actual GitHub Actions for the first time), every integration
+test failed with `permission denied for table ...`. Root cause: **no
+migration across Milestones 1–9 ever granted table-level privileges to
+the `authenticated` Postgres role** — every table's access has relied
+entirely on RLS policies, but Postgres checks the table-level `GRANT`
+before it ever evaluates an RLS policy. `supabase/config.toml`'s own
+`auto_expose_new_tables` setting confirms this isn't a CI-only quirk:
+newly created tables are **not** auto-exposed to
+`anon`/`authenticated`/`service_role` by default anymore ("the new cloud
+default") — a behavior Supabase used to provide automatically and no
+longer does. See `docs/decisions.md` ADR-057 for full detail.
+
+**This most likely means the currently-linked Supabase project has the
+same gap**, since it was set up the same way (migrations only, no manual
+grants) — if so, every authenticated user of the deployed app is
+currently getting `permission denied` on ordinary reads/writes, not just
+this session's CI run.
+
+**Fix**: `supabase/migrations/20260813090000_grant_table_privileges_to_data_api_roles.sql`
+grants the missing privileges and sets default privileges for future
+tables. **This should be applied to the linked project immediately**,
+independent of whether the rest of this PR chain has merged — it is
+purely additive (no table/column/constraint change) and does not weaken
+tenant isolation (RLS is still the real enforcement layer; see ADR-057
+for why `audit_logs`'s missing UPDATE/DELETE policy, for example, still
+blocks those commands regardless of this grant).
+
+**Action needed from the user**: apply this migration to the linked
+project as soon as possible, and if the app is already live for real
+users, verify with a real authenticated request that basic reads/writes
+(e.g. loading the dashboard, viewing a lead) actually work — this may
+explain any "permission denied" reports if the app has been in use.
+
 ## 8. Manual verification checklist (for the user / whoever runs this before pilot)
 
 - [ ] Decide on the Supabase free-tier backups gap (§2) — accept the risk
@@ -167,6 +203,11 @@ rule 10; this session cannot apply it directly).
       deployment (§5).
 - [ ] Confirm a Preview deployment for this branch builds and serves
       correctly.
+- [ ] **Urgent** — apply
+      `20260813090000_grant_table_privileges_to_data_api_roles.sql` to the
+      linked project (§7a) and confirm real authenticated reads/writes
+      work; this may already be causing `permission denied` errors for
+      real users of the deployed app.
 - [ ] Apply `20260813080000_milestone9_routing_state_race_fix.sql` (and
       every other pending migration) to the linked project.
 - [ ] Explicitly approve before any production deployment (CLAUDE.md
