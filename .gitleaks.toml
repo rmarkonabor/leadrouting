@@ -1,0 +1,18 @@
+title = "leadrouting gitleaks config"
+
+[extend]
+useDefault = true
+
+# tests/unit/sentry-sanitize.test.ts intentionally contains fake,
+# credential-shaped fixture values (e.g. "at_live_abc123", "rt_abc123") to
+# verify the Sentry sanitizer strips CRM/webhook credentials from events —
+# see that file's "Milestone 9 production-shaped event review" describe
+# block. These are not real secrets and never have been; gitleaks' generic
+# entropy-based rule flags them anyway because they are shaped like
+# tokens, which is exactly the point of the test. Excluded by path rather
+# than weakening any rule globally.
+[allowlist]
+  description = "Fake credential-shaped fixtures in the Sentry sanitizer test suite (not real secrets)"
+  paths = [
+    '''tests/unit/sentry-sanitize\.test\.ts''',
+  ]
