@@ -5,11 +5,28 @@ on:
   push:
     branches: [main]
 
-# Milestone 1 established the minimal gate (format/lint/typecheck/test/build)
-# per CLAUDE.md rule 15. Milestone 9 (Production Readiness) extends it per
-# docs/implementation-plan.md and docs/testing-strategy.md §4 with the two
-# pieces that were explicitly deferred: RLS/integration tests against a real
-# local Supabase stack, and a dependency vulnerability scan.
+# Continuous integration and deployment-safety gate. Every job here runs
+# read-only, local, or throwaway operations only:
+#   - `checks` and `migration-validation` touch nothing but a fresh
+#     checkout and (for migration-validation) a local, ephemeral Supabase
+#     stack that is destroyed at the end of the job.
+#   - No job ever runs `supabase db push --linked`, `supabase link`, or any
+#     other command against the real linked Supabase project (CLAUDE.md
+#     rules 10-12) — there is no migration-deployment step here at all.
+#   - No job deploys to Vercel. Preview deployments are created
+#     automatically by Vercel's own GitHub integration outside this
+#     workflow; production deployment is restricted to the production
+#     branch by the Vercel project's own Git settings (see
+#     docs/branch-protection.md), never triggered from a feature branch by
+#     anything in this repo.
+#   - No real secret is ever written into this file. The `SUPABASE_SECRET_KEY`
+#     /`NEXT_PUBLIC_SUPABASE_*` values below are non-sensitive, hardcoded
+#     placeholders that only satisfy Zod env validation
+#     (src/lib/env) for a build/test run that never contacts a real
+#     Supabase project. If a job ever needs a real secret (e.g. a
+#     production Sentry auth token), it must be read from
+#     `${{ secrets.<NAME> }}` (GitHub repository/environment secrets),
+#     never inlined here — see docs/branch-protection.md's "Secrets" note.
 
 jobs:
   checks:
@@ -24,13 +41,16 @@ jobs:
       SUPABASE_SECRET_KEY: ci-placeholder-secret-key
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: "npm"
 
-      - run: npm ci
+      - name: npm clean install
+        run: npm ci
 
       - name: Format check
         run: npm run format
@@ -49,6 +69,74 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # Secret scanning ("where available" per the kickoff): gitleaks is
+      # free for public repos and open source, no license key required for
+      # this detection-only usage. Scans the full history on `push` and
+      # just the PR's diff on `pull_request` (fetch-depth: 0 above gives it
+      # the history it needs either way).
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  migration-validation:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-publishable-key
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      SUPABASE_SECRET_KEY: ci-placeholder-secret-key
+    steps:
+      - uses: actions/checkout@v5
+
+      # Filename convention check (docs/database-schema.md §22): every
+      # migration must be `<14-digit UTC timestamp>_<description>.sql`,
+      # and no two migrations may share a timestamp (which would make
+      # apply order ambiguous). Fast, dependency-free, catches a whole
+      # class of mistakes before ever touching a database.
+      - name: Validate migration filenames
+        run: |
+          cd supabase/migrations
+          status=0
+          seen=""
+          for f in *.sql; do
+            if ! [[ "$f" =~ ^[0-9]{14}_[a-z0-9_]+\.sql$ ]]; then
+              echo "::error file=supabase/migrations/$f::Migration filename does not match <14-digit timestamp>_<description>.sql"
+              status=1
+            fi
+            ts="${f%%_*}"
+            if [[ " $seen " == *" $ts "* ]]; then
+              echo "::error file=supabase/migrations/$f::Duplicate migration timestamp $ts — apply order would be ambiguous"
+              status=1
+            fi
+            seen="$seen $ts"
+          done
+          exit $status
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # The real migration validation: every file in supabase/migrations/
+      # must apply cleanly, in order, to a fresh database. This is a local,
+      # throwaway Postgres instance created and destroyed entirely inside
+      # this job — never the linked/production project (CLAUDE.md rules
+      # 10-12; docs/database-schema.md §22 "local db reset freely, never
+      # --linked").
+      - name: Validate migrations apply cleanly (fresh local Supabase stack)
+        run: supabase start
+
+      - name: Stop local Supabase stack
+        if: always()
+        run: supabase stop
 
   integration-tests:
     runs-on: ubuntu-latest
@@ -73,7 +161,9 @@ jobs:
 
       # Starts the local Postgres/Auth/PostgREST stack and applies every
       # migration in supabase/migrations/ (per docs/database-schema.md §22,
-      # this is local-only — never `--linked`, per CLAUDE.md rule 12).
+      # this is local-only — never `--linked`, per CLAUDE.md rule 12). Every
+      # row created below is scoped to this ephemeral, disposable instance —
+      # nothing here ever touches production data (kickoff requirement 6).
       - name: Start local Supabase stack
         run: supabase start
 
@@ -82,7 +172,7 @@ jobs:
       # the first place in CI they actually run. --no-file-parallelism per
       # the same README: several files sharing one Postgres connection pool
       # under contention can produce spurious transaction-state errors.
-      - name: Integration tests (RLS + real Postgres)
+      - name: Integration tests (RLS + real Postgres, local/ephemeral only)
         run: |
           npx vitest run tests/integration --no-file-parallelism
         env:

@@ -106,19 +106,40 @@ explicitly delegate that walkthrough and report back what was found.
 
 ## 6. Vercel Preview / Production deployment
 
-- Preview deployments: per `docs/setup.md`, pushing a branch (or opening a
-  PR) triggers a Vercel Preview deployment automatically through the
-  GitHub integration — this mechanism itself is standard Vercel/GitHub
-  behavior, not something this milestone needed to build.
+**Verified directly against the real Vercel project's deployment
+history** (`leadrouting`, via the Vercel API), not assumed:
+
+- **Preview deployments for branches: confirmed.** Every push to a
+  `milestone/*` feature branch in this project's history produced its own
+  deployment with a branch-scoped alias (e.g.
+  `leadrouting-git-milestone-09-produ-...vercel.app`) and `target: null`
+  (Vercel's Preview classification) — this happened automatically through
+  the GitHub integration for every one of Milestones 5 through 9's
+  branches, with no manual trigger.
+- **Production deployment restricted to the production branch: confirmed.**
+  Every deployment in this project's history with `target: "production"`
+  has `githubCommitRef: "main"` — there is no example of a
+  `target: "production"` deployment originating from any other branch.
+  This is enforced by the Vercel project's own **Production Branch**
+  setting (Project Settings → Git), currently `main`, not by anything in
+  this repository's GitHub Actions workflow.
 - **Production deployment is explicitly not part of this milestone's
   verification**, per CLAUDE.md rule 13 and the Milestone 9 plan's own
   text: "do not actually deploy to production as part of this milestone's
   verification unless the user explicitly approves it." No production
   deploy has been made or requested as part of this work.
+- **Observation, not something this session investigated or fixed**:
+  several of the historical `target: "production"` deployments in this
+  project ended in `state: "ERROR"`. Diagnosing/fixing that is outside
+  this CI/deployment-safety-checks scope ("implement CI checks only") —
+  flagged here so it isn't missed before relying on production deploys
+  working cleanly.
 
 **Action needed from the user**: confirm a Preview deployment for this
-branch builds and serves correctly (§8's checklist), and give explicit
-approval before any production deploy.
+branch builds and serves correctly, and give explicit approval before any
+production deploy. See `docs/branch-protection.md` for the required
+GitHub-side branch protection settings (separate from, and complementary
+to, Vercel's own production-branch restriction described above).
 
 ## 7. Concurrency fix — read this before merging
 
