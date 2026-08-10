@@ -1,8 +1,11 @@
 # Testing Strategy
 
 Source: `docs/phase1-product-spec.md` §54. Vitest for unit/integration;
-Playwright is introduced before customer pilots (Milestone 9), not from
-day one.
+Playwright was originally scoped for Milestone 9 (before customer pilots),
+but was introduced early, at the Milestone 7 kickoff's explicit request,
+for that milestone's new UI surface — see §3 and docs/decisions.md
+ADR-050. Milestone 9 remains the point where its coverage becomes broad
+and CI-gated.
 
 ## 1. Vitest categories (spec §54's 34 categories, grouped)
 
@@ -50,7 +53,21 @@ These six run in CI on every PR touching `modules/routing`,
 `modules/assignments`, or their migrations, not just at milestone
 boundaries.
 
-## 3. Playwright (introduced at Milestone 9, per spec)
+## 3. Playwright
+
+### 3a. Milestone 7 early slice (`tests/e2e/`, ADR-050)
+
+Five journeys against the Milestone 7 lead-interface pages, plus an
+automated axe-core WCAG 2 A/AA scan of those same pages — see
+`tests/e2e/README.md` for the full list and required env vars. These need
+a real running app and a real seeded Supabase project (no mocks for
+auth/RLS), so they are not wired into `npm test` or CI: every spec skips
+itself cleanly when the required `E2E_*` env vars are absent, run
+explicitly via `npm run test:e2e`. Full role-permission scoping
+(agent/team_manager/org_admin/cross-org) stays covered at the RLS layer in
+`tests/integration`, not duplicated in this slice.
+
+### 3b. Full scope (Milestone 9, per spec)
 
 Critical journeys, run against a preview deployment before any pilot:
 

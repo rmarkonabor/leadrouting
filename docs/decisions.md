@@ -1012,3 +1012,118 @@ assignment sets `assignment_algorithm = 'manual'`, resolves any open
 `manual_review_items` for the lead, and records a `manual_assignment`
 activity (`tests/integration/milestone6-assignment-lifecycle.test.ts`,
 scenario 11).
+
+## ADR-046: Routing health metrics computed live, not read from a Cron-populated table
+
+**Context**: Milestone 7 needs the 18 spec §45 routing health metrics
+available on demand for the dashboard. A Cron job could periodically
+compute and store them in `routing_health_metrics`, but the dashboard
+would then show stale numbers between runs, and would show nothing at all
+for an organization before the first Cron tick — the same problem
+Milestone 4's conflict/coverage detection solved with ADR-036 ("compute on
+demand").
+**Decision**: `compute_routing_health(org_id, bucket_start, bucket_end)` is
+a `stable security definer` function that computes all 18 metrics live via
+SQL aggregates against `leads`, `assignments`, `manual_review_items`,
+`user_assignment_settings`, `user_availability`, `territories`, and
+`assignment_attempts` — the dashboard page calls it directly for its
+window (this milestone: trailing 24 hours) rather than reading a table.
+`routing_health_metrics` still exists, populated on a best-effort 5-minute
+Cron schedule (`refresh_routing_health_metrics`, guarded by
+`is_cron_available()` exactly like Milestone 6's notification/expiry
+Crons) purely for future historical-trend charts — nothing in this
+milestone reads from it.
+Two metrics (`crm_sync_failures`, `webhook_failures`) always report `0`:
+their source tables (`integration_logs`, `webhook_deliveries`) don't exist
+until Milestone 8. `territories_without_users_count` and
+`territory_conflicts_count` use a simpler structural approximation (no
+`territory_users`/`territory_teams` rows; duplicate territory-field
+tuples) than the full detection logic in
+`modules/territories/conflict-detection.ts`, which remains the source of
+truth for the Territories admin page — recomputing that page's full
+algorithm as a health-dashboard subquery was judged not worth the
+duplication for a monitoring number.
+**Status**: adopted.
+
+## ADR-047: Routing health dashboard is not team-scoped for a team_manager (known gap)
+
+**Context**: `docs/permissions-matrix.md` specifies a `team_manager` should
+see routing health for their permitted teams only, while an `org_admin`
+sees the whole organization. `compute_routing_health` takes only
+`organization_id` — none of its 18 subqueries join through
+`leads.assigned_team_id` or an equivalent team filter.
+**Decision**: Ship without team-scoping for this milestone.
+`modules/routing-health/routing-health.ts` restricts the dashboard to
+org_admin and team_manager (agents are rejected, matching the matrix), but
+a team_manager currently sees the same org-wide numbers an org_admin does.
+Reworking all 18 subqueries to accept and apply a team filter is real SQL
+work, not a UI change, and was judged out of scope for this pass given the
+rest of Milestone 7's surface area. Tracked here as a known limitation,
+not silently shipped — a future pass should add an optional
+`p_team_id` parameter to `compute_routing_health` and thread it through
+each metric that has a `leads`/`assignments` row to filter by team.
+**Status**: accepted gap, not resolved.
+
+## ADR-048: Lead status definitions are seeded per-organization, not a single global set
+
+**Context**: spec §37 lists 9 default lead statuses
+(`new`/`assigned`/`accepted`/`contact_attempted`/`contacted`/`qualified`/
+`unqualified`/`converted`/`lost`), but also implies statuses are
+org-configurable going forward (the `lead_status_definitions` table has an
+`organization_id` column, `active` flag, and `sort_order`) — a single
+hardcoded global enum would block that.
+**Decision**: `seed_default_lead_statuses(organization_id)` inserts the 9
+defaults for one organization, `on conflict (organization_id, key) do
+nothing` so it's safe to call more than once. It runs in two places:
+(1) a one-time backfill in the Milestone 7 migration for every
+organization that existed before this migration, and (2) a new call
+inside `bootstrap_organization` (extended via `create or replace`, body
+otherwise unchanged from Milestone 1) so every organization created from
+this point on gets the same 9 defaults automatically. `leads.lead_status`
+itself stays a plain `text` column (a Milestone 3 decision, unchanged) —
+`update_lead_status` validates against `lead_status_definitions` at
+write time rather than a database-level foreign key, so an org_admin can
+still deactivate a status without an FK constraint blocking it.
+**Status**: adopted.
+
+## ADR-049: Original raw submission payload is gated in application code, not solely by `submission_logs` RLS
+
+**Context**: `docs/permissions-matrix.md` requires the original raw
+payload (spec §36.3 item 9) visible to `org_admin` only, and marks its
+enforcement layer "Server" specifically (not "RLS" or "Both") — a
+narrower requirement than everything else on the lead detail page, which
+`leads_select_scoped`-style RLS already handles.
+**Decision**: `getLeadDetail` (`src/modules/leads/get-lead-detail.ts`)
+checks `membership.role === "org_admin"` in application code before even
+querying `submission_logs`, rather than depending only on that table's
+existing org_admin-only RLS policy. This is deliberate defense in depth:
+`submission_logs` RLS is already org_admin-only today, but the payload
+question is specifically about a human viewing it through this one page,
+not about what the row's RLS generally allows — a future relaxation of
+`submission_logs` RLS for some other legitimate reason (e.g. letting a
+team_manager see delivery status without the payload) must not silently
+reopen payload visibility here too.
+**Status**: adopted.
+
+## ADR-050: Playwright introduced at Milestone 7, ahead of its spec-scoped Milestone 9 ("pre-pilot")
+
+**Context**: `docs/testing-strategy.md` scoped Playwright to Milestone 9
+per the original spec. The Milestone 7 kickoff explicitly asked for
+"Playwright tests for the most important user journeys" and accessibility
+checks "where practical," overriding that schedule for this one
+milestone's UI surface.
+**Decision**: `@playwright/test` and `@axe-core/playwright` are added as
+dev dependencies now. `tests/e2e/` covers five journeys (dashboard, lead
+list search/empty-state, lead detail view/note/status-change, manual
+review resolve, routing simulator run) plus an automated axe-core
+WCAG 2 A/AA scan of the five new pages. These tests need a real running
+app and a real seeded Supabase project (same reasoning as
+`tests/integration`'s real-Postgres approach — RLS/auth can't be
+meaningfully faked), so they are not wired into `npm test` or CI; every
+spec calls `test.skip(...)` up front when the required `E2E_*` env vars
+are absent (see `tests/e2e/README.md`), verified locally by running the
+full suite without those vars and confirming all 11 tests skip cleanly.
+Milestone 9 remains the point at which Playwright becomes a CI gate with
+broader coverage across the rest of the app — this is an early, narrow
+slice of that eventual scope, not a replacement for it.
+**Status**: adopted.

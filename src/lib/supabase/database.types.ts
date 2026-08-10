@@ -109,7 +109,9 @@ export type RoutingActivityType =
   | "assignment_viewed"
   | "manual_assignment"
   | "manual_reassignment"
-  | "manual_review_resolved";
+  | "manual_review_resolved"
+  | "status_changed"
+  | "note_added";
 export type IntegrationJobStatus =
   | "queued"
   | "processing"
@@ -1152,6 +1154,88 @@ export interface Database {
         Update: never;
         Relationships: [];
       };
+      lead_status_definitions: {
+        Row: {
+          id: string;
+          organization_id: string;
+          key: string;
+          label: string;
+          sort_order: number;
+          is_default_set: boolean;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          key: string;
+          label: string;
+          sort_order?: number;
+          is_default_set?: boolean;
+          active?: boolean;
+        };
+        Update: Partial<{ label: string; sort_order: number; active: boolean }>;
+        Relationships: [];
+      };
+      lead_status_history: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          from_status: string | null;
+          to_status: string;
+          changed_by_user_id: string | null;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      notes: {
+        Row: {
+          id: string;
+          organization_id: string;
+          lead_id: string;
+          author_user_id: string;
+          content: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      routing_health_metrics: {
+        Row: {
+          id: string;
+          organization_id: string;
+          bucket_start: string;
+          bucket_end: string;
+          leads_received: number;
+          leads_assigned: number;
+          leads_awaiting_acceptance: number;
+          assignments_expired: number;
+          leads_reassigned: number;
+          leads_in_manual_review: number;
+          no_matching_rule_count: number;
+          no_eligible_user_count: number;
+          users_at_capacity_count: number;
+          unavailable_users_count: number;
+          territories_without_users_count: number;
+          territory_conflicts_count: number;
+          crm_sync_failures: number;
+          webhook_failures: number;
+          median_routing_time_ms: number | null;
+          median_acceptance_time_ms: number | null;
+          assignment_success_rate: number | null;
+          manual_routing_rate: number | null;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -1292,6 +1376,37 @@ export interface Database {
           p_body: string;
         };
         Returns: Database["public"]["Tables"]["notifications"]["Row"];
+      };
+      update_lead_status: {
+        Args: { p_lead_id: string; p_new_status: string };
+        Returns: Database["public"]["Tables"]["leads"]["Row"];
+      };
+      add_note: {
+        Args: { p_lead_id: string; p_content: string };
+        Returns: Database["public"]["Tables"]["notes"]["Row"];
+      };
+      compute_routing_health: {
+        Args: { p_organization_id: string; p_bucket_start: string; p_bucket_end: string };
+        Returns: {
+          leadsReceived: number;
+          leadsAssigned: number;
+          leadsAwaitingAcceptance: number;
+          assignmentsExpired: number;
+          leadsReassigned: number;
+          leadsInManualReview: number;
+          noMatchingRuleCount: number;
+          noEligibleUserCount: number;
+          usersAtCapacityCount: number;
+          unavailableUsersCount: number;
+          territoriesWithoutUsersCount: number;
+          territoryConflictsCount: number;
+          crmSyncFailures: number;
+          webhookFailures: number;
+          medianRoutingTimeMs: number | null;
+          medianAcceptanceTimeMs: number | null;
+          assignmentSuccessRate: number | null;
+          manualRoutingRate: number | null;
+        };
       };
     };
   };
