@@ -9,11 +9,11 @@ the system actually is.
 **Verdict: NOT YET READY for live customer data.** Two release-blocking
 issues were found and fixed in code during this audit (a real cross-tenant
 authorization gap, and a missing-privileges bug that would break the app
-for every real user) — both fixes exist only as unapplied migration files
-until someone with access to the linked Supabase project runs them. One
-further release-blocking item (database backups) cannot be fixed by
-engineering work at all; it requires a business decision. See §31 for the
-complete blocker list.
+for every real user); both fix migrations have now been applied to the
+linked Supabase project, per user confirmation. Two items remain open:
+database backups (a business decision, not something engineering can fix)
+and confirmation that dev/preview/production Supabase projects are
+actually separate. See §31 for the complete blocker list.
 
 ## How to read this document
 
@@ -84,8 +84,8 @@ tests (`tests/integration/milestone6-assignment-lifecycle.test.ts`
 function** and **passes with the fix applied**, proving the tests exercise
 real behavior. Full suite: 66/66 passing with the fix in place.
 
-**This migration has not yet been applied to any linked project** — it
-exists only as a file in this branch. See §31.
+**This migration has been applied to the linked Supabase project**
+(confirmed by the user). See §31 for the remaining blockers.
 
 Every other server-authorization path was re-checked and found sound:
 `requireOrgContext`/`requireOrgAdminContext` resolve the organization from
@@ -405,12 +405,13 @@ per the Milestone 9 plan's own manual-verification step.
 
 ## 31. Complete list of remaining release blockers
 
-1. **Apply `20260813100000_validate_manual_assignment_org_membership.sql`**
-   to the linked Supabase project (§4) — fixes the cross-tenant manual-
-   assignment authorization gap. Not yet applied anywhere.
-2. **Confirm `20260813090000_grant_table_privileges_to_data_api_roles.sql`
-   actually resolved cleanly** (§20) — the user reports it was applied;
-   verify with a real authenticated request.
+1. ~~Apply `20260813100000_validate_manual_assignment_org_membership.sql`
+   to the linked Supabase project (§4)~~ — **resolved.** The user confirmed
+   this migration has been applied to the linked project.
+2. ~~Confirm `20260813090000_grant_table_privileges_to_data_api_roles.sql`
+   actually resolved cleanly~~ (§20) — the user reports it was applied.
+   Still worth a real authenticated smoke test (load the dashboard, view a
+   lead) before pilot traffic, but no longer blocking on its own.
 3. **Database backups (§21)** — no automatic backups on the current
    Supabase free-tier project. Requires a business decision (upgrade tier
    or explicitly accept zero recovery) before real customer data enters
@@ -420,11 +421,9 @@ per the Milestone 9 plan's own manual-verification step.
    is also effectively release blocking (preview activity could touch real
    data).
 
-None of these four are optional polish — each represents a real path to
-either data loss, cross-tenant exposure, or an unusable app for real
-users. **Do not point real customer data at this system until all four
-are resolved or explicitly, knowingly accepted by the person responsible
-for that decision.**
+Items 1 and 2 are resolved. **Items 3 and 4 remain open** — do not point
+real customer data at this system until both are resolved or explicitly,
+knowingly accepted by the person responsible for that decision.
 
 ## 32. High/Medium/Low priority items (non-blocking, should still be resolved before pilot)
 

@@ -7,12 +7,13 @@ short version to actually work through.
 
 ## Release blockers — must all be checked before go-live
 
-- [ ] Apply `20260813100000_validate_manual_assignment_org_membership.sql`
+- [x] Apply `20260813100000_validate_manual_assignment_org_membership.sql`
       to the linked Supabase project (fixes a real cross-tenant
-      authorization gap — `docs/production-readiness.md` §4).
-- [ ] Confirm `20260813090000_grant_table_privileges_to_data_api_roles.sql`
-      is applied and actually resolved cleanly — test a real authenticated
-      read/write (§20).
+      authorization gap — `docs/production-readiness.md` §4). Applied,
+      per user confirmation.
+- [x] Confirm `20260813090000_grant_table_privileges_to_data_api_roles.sql`
+      is applied — the user confirmed this earlier. Still worth a real
+      authenticated read/write smoke test before pilot traffic (§20).
 - [ ] Decide on the database backups gap: upgrade the Supabase project
       tier, or explicitly and knowingly accept zero recovery capability
       (§21, `docs/backup-and-restore.md`).
