@@ -1355,3 +1355,74 @@ all 12 migrations and no manual workaround grants of any kind — the full
 same result previously achieved only with hand-applied, undocumented
 grants.
 **Status**: adopted.
+
+## ADR-058: Release-blocking fix — manual assignment never validated the target user/team belongs to the lead's organization
+
+**Context**: the pre-pilot production readiness audit reviewed every
+Server Action / DB function that takes a free-text identifier from an
+authenticated admin, rather than deriving candidates from a scoped query
+(as `route_lead`'s eligibility computation does). `manually_assign_lead`/
+`manually_reassign_lead` (both thin wrappers over
+`manually_assign_or_reassign_lead`) take a `p_user_id` and optional
+`p_team_id` directly from the admin's form input (see
+`src/modules/assignments/manual-assignment.ts`,
+`src/modules/manual-review/manual-assign-form.tsx`) and had never checked
+that either belonged to the lead's own organization — only that the
+_caller_ was an `org_admin` (or a team_manager permitted for
+`p_team_id`). An org_admin of organization A could submit any UUID at
+all — a real user or team from organization B, or a value matching no
+user/team — and the function would still create the assignment, update
+`leads.assigned_user_id`/`assigned_team_id`, and fire
+`enqueue_assignment_notification` targeting that user_id.
+**Impact**: this is a genuine cross-tenant exposure, not just a
+data-integrity nicety. `leads`/`assignments` RLS still protects the lead's
+_own_ row from being read back by the foreign user (their
+`organization_users` row for organization A doesn't exist), but the
+notification itself — its title/body describing the lead, resolved and
+delivered by `process-assignment-notifications` — is generated and
+inserted directly, which RLS does nothing to stop since it's a targeted
+write, not a read the foreign user performs themselves. Classified
+**release blocking**: a real path for organization A's lead data to reach
+a user account outside organization A.
+**Decision**: `20260813100000_validate_manual_assignment_org_membership.sql`
+adds two checks at the top of `manually_assign_or_reassign_lead`, before
+any mutation: `p_user_id` must have an `active` `organization_users` row
+for the lead's own `organization_id`, and if `p_team_id` is provided, it
+must belong to that same organization. Both raise a clear exception
+(`22023`) rather than silently no-op-ing.
+**Verification**: added three tests to
+`tests/integration/milestone6-assignment-lifecycle.test.ts` (11a/11b/11c —
+foreign user, nonexistent user, foreign team) and confirmed all three
+**fail against the pre-fix function** (proving they test real behavior,
+not a vacuous assertion) and **pass with the fix applied**, alongside the
+full existing suite (66/66 passing, no regressions).
+**Root cause note**: this gap existed since Milestone 6 and was missed by
+that milestone's own "cross-organization access" test (#12), which only
+exercised _read_ access to `notifications`/`integration_jobs` as a
+foreign-org admin — never the _write_ path of manually assigning a lead
+to an arbitrary identifier. Recorded here so future manual-input
+DB-function work checks organization membership explicitly rather than
+assuming RLS alone covers write-side authorization.
+**Status**: adopted.
+
+## ADR-059: Database backups gap knowingly accepted for now, not resolved
+
+**Context**: the production readiness audit (`docs/production-readiness.md`
+§21) found the linked Supabase project is on the free tier, which has no
+automatic backups or point-in-time recovery. This was originally
+classified release blocking, since it cannot be closed by any engineering
+work — only by upgrading the Supabase project's billing tier or explicitly
+accepting the risk.
+**Decision**: the person responsible for this decision has explicitly
+chosen to accept zero recovery capability for now rather than upgrade the
+tier. This is a deliberate, informed choice, not an oversight — recorded
+here per CLAUDE.md rule 22 so the tradeoff and its owner are traceable
+later, not just inferred from an unexplained absence of backups.
+**Consequence**: if data is lost or corrupted (bad migration, application
+bug, mistaken deletion, Supabase-side incident), there is currently no way
+to restore it. `audit_logs`/`activities` (append-only) and periodic manual
+export are the only mitigations, and neither is a substitute for a real
+backup/restore capability.
+**Status**: adopted — risk accepted, not resolved. Should be revisited
+before any pilot scales beyond a small, trusted set of organizations, per
+`docs/backup-and-restore.md`.

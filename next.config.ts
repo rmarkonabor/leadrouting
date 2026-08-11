@@ -20,6 +20,17 @@ export default withSentryConfig(nextConfig, {
   // chunks, so stack traces resolve to real TypeScript source everywhere.
   widenClientFileUpload: true,
 
+  // Production readiness audit (item 18): explicit, not just relying on
+  // Next's own default of not serving .map files publicly
+  // (productionBrowserSourceMaps is unset/false above). Deletes the
+  // generated source map files from the build output right after they're
+  // uploaded to Sentry, so a full source map (which can reveal business
+  // logic/internal structure) is never a build artifact that could be
+  // served, copied, or leak via a misconfigured static file route.
+  sourcemaps: {
+    deleteSourcemapsAfterUpload: true,
+  },
+
   // `disableLogger`/`automaticVercelMonitors` are webpack-only options (the
   // SDK warns they're "not supported with Turbopack") — this project always
   // builds with Turbopack (Next.js 16 default), so they're intentionally
