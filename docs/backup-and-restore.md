@@ -1,6 +1,6 @@
 # Backup and Restore
 
-## Current status: no backups available (release blocking)
+## Current status: no backups available (risk knowingly accepted)
 
 The linked Supabase project is on the **free tier**, which does not
 include automatic backups or point-in-time recovery (PITR). This was
@@ -9,11 +9,14 @@ document, **there is no way to recover from accidental data loss** —
 whether from a bad migration, an operator mistake, a bug that deletes or
 corrupts rows, or a Supabase-side incident.
 
-This is listed as a release blocker in `docs/production-readiness.md` §21
-and §31. It is not a gap this or any future engineering pass can close —
-it requires upgrading the Supabase project's billing tier, which is a
-business decision for the person responsible for that budget, not an
-engineering task.
+This was originally listed as a release blocker in
+`docs/production-readiness.md` §21/§31. **The person responsible for this
+decision has explicitly chosen to accept zero recovery capability for
+now** rather than upgrade the Supabase project's billing tier, so it no
+longer blocks go-live. The underlying risk is unchanged — this decision
+should be revisited before any pilot scales beyond a small, trusted set of
+organizations, since the blast radius of an unrecoverable incident grows
+with every additional org's data on the platform.
 
 ## Why this matters concretely
 

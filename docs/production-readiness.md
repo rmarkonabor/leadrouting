@@ -6,14 +6,18 @@ features. This document is the single source of truth for go/no-go
 status; it does not soften or omit findings to look more finished than
 the system actually is.
 
-**Verdict: NOT YET READY for live customer data.** Two release-blocking
-issues were found and fixed in code during this audit (a real cross-tenant
-authorization gap, and a missing-privileges bug that would break the app
-for every real user); both fix migrations have now been applied to the
-linked Supabase project, per user confirmation. Two items remain open:
-database backups (a business decision, not something engineering can fix)
-and confirmation that dev/preview/production Supabase projects are
-actually separate. See §31 for the complete blocker list.
+**Verdict: NOT YET READY for live customer data — one release blocker
+remains.** Two release-blocking code issues were found and fixed during
+this audit (a real cross-tenant authorization gap, and a missing-
+privileges bug that would break the app for every real user); both fix
+migrations have now been applied to the linked Supabase project, per user
+confirmation. The database-backups gap has been explicitly, knowingly
+accepted by the person responsible for that decision, so it no longer
+blocks go-live (though the risk itself is unchanged — see §21). **One item
+remains genuinely open and blocking**: whether development/preview and
+production use separate Supabase projects is currently unknown even to
+the user — this must be checked before real customer data enters the
+system. See §31.
 
 ## How to read this document
 
@@ -294,15 +298,19 @@ schema change.
 
 ## 21. Backup plan
 
-**RELEASE BLOCKING — cannot be fixed by engineering work.** The linked
-Supabase project is on the free tier, which has no automatic backups or
-point-in-time recovery. This was confirmed directly by the user, not
-assumed. There is no code-level workaround — building one would itself be
-out-of-scope, unapproved product surface. See `docs/backup-and-restore.md`
-for exactly what this means operationally and what upgrading would look
-like. **This is a business decision (upgrade the Supabase project tier,
-or explicitly accept the risk of zero recovery), not something resolved
-by this or any future engineering pass.**
+**RISK KNOWINGLY ACCEPTED — no longer blocking, but not resolved.** The
+linked Supabase project is on the free tier, which has no automatic
+backups or point-in-time recovery. This was confirmed directly by the
+user, not assumed. There is no code-level workaround — building one would
+itself be out-of-scope, unapproved product surface. **The person
+responsible for this decision has explicitly accepted zero recovery
+capability for now** rather than upgrading the project tier. This means:
+if data is lost or corrupted (a bad migration, an application bug, a bad
+`delete`), there is currently no way to recover it — the mitigations in
+`docs/backup-and-restore.md` (append-only `audit_logs`/`activities`,
+periodic manual export) are the only safety net. This acceptance should be
+revisited before any pilot scales beyond a small, trusted set of
+organizations.
 
 ## 22. Data export
 
@@ -375,17 +383,26 @@ environment, not all set to the same values.
 
 ## 29. Development, preview, and production separation
 
-**HIGH PRIORITY — cannot be verified from this session.** Whether a
-genuinely separate Supabase project (not just a separate schema, and
-definitely not the same project) backs local/preview development versus
-the production project could not be checked — this session has no
-Supabase account access, only the linked project's connection details
-supplied for migration application. If preview deployments and real pilot
-data currently share one Supabase project, that is a serious risk (a
-developer's preview testing could touch, or a bug in preview could
-corrupt, real customer data). **Action needed from the user**: confirm
-this explicitly, or set it up before pilot traffic if it isn't already
-separate.
+**RELEASE BLOCKING — still unconfirmed.** Whether a genuinely separate
+Supabase project (not just a separate schema, and definitely not the same
+project) backs local/preview development versus the production project
+could not be checked from this session — no Supabase account access, only
+the linked project's connection details supplied for migration
+application. Asked directly, **the user does not currently know** whether
+these are separate. If preview deployments and real pilot data currently
+share one Supabase project, that is a serious risk: a developer's preview
+testing, a Preview-deployment bug, or an E2E test run could touch or
+corrupt real customer data, with no isolation boundary at all between
+"testing" and "production."
+
+**Action needed from the user before pilot traffic**: check the Vercel
+project's Environment Variables page (Settings → Environment Variables) —
+compare the `NEXT_PUBLIC_SUPABASE_URL` value scoped to Production against
+the value scoped to Preview/Development. If they're the same URL, it's one
+shared project (not separated) and this must be fixed (create a second
+Supabase project for dev/preview, or accept the risk knowingly, the same
+way backups were just accepted in §21) before pilot traffic. If they
+differ, this item is resolved — report back which case it is.
 
 ## 30. Playwright coverage for critical flows
 
@@ -412,18 +429,22 @@ per the Milestone 9 plan's own manual-verification step.
    actually resolved cleanly~~ (§20) — the user reports it was applied.
    Still worth a real authenticated smoke test (load the dashboard, view a
    lead) before pilot traffic, but no longer blocking on its own.
-3. **Database backups (§21)** — no automatic backups on the current
-   Supabase free-tier project. Requires a business decision (upgrade tier
-   or explicitly accept zero recovery) before real customer data enters
-   the system. This cannot be closed by any engineering fix.
+3. ~~Database backups (§21)~~ — **risk knowingly accepted**, not
+   technically resolved. The person responsible for this decision has
+   explicitly chosen to accept zero recovery capability for now rather
+   than upgrade the Supabase project tier. No further action needed unless
+   this decision is revisited.
 4. **Confirm dev/preview/production Supabase project separation (§29)** —
-   could not be verified from this session; if not actually separate, this
-   is also effectively release blocking (preview activity could touch real
-   data).
+   **still open and blocking.** Not verifiable from this session, and the
+   user does not currently know the answer either. Check the Vercel
+   dashboard's per-environment `NEXT_PUBLIC_SUPABASE_URL` values (see §29
+   for exact steps) before pilot traffic.
 
-Items 1 and 2 are resolved. **Items 3 and 4 remain open** — do not point
-real customer data at this system until both are resolved or explicitly,
-knowingly accepted by the person responsible for that decision.
+Items 1, 2, and 3 are resolved (3 via explicit risk acceptance, not a
+technical fix). **Item 4 is the sole remaining release blocker.** Do not
+point real customer data at this system until it's checked and either
+confirmed separate or the shared-project risk is explicitly accepted the
+same way item 3 was.
 
 ## 32. High/Medium/Low priority items (non-blocking, should still be resolved before pilot)
 

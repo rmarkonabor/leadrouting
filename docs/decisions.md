@@ -1404,3 +1404,25 @@ to an arbitrary identifier. Recorded here so future manual-input
 DB-function work checks organization membership explicitly rather than
 assuming RLS alone covers write-side authorization.
 **Status**: adopted.
+
+## ADR-059: Database backups gap knowingly accepted for now, not resolved
+
+**Context**: the production readiness audit (`docs/production-readiness.md`
+§21) found the linked Supabase project is on the free tier, which has no
+automatic backups or point-in-time recovery. This was originally
+classified release blocking, since it cannot be closed by any engineering
+work — only by upgrading the Supabase project's billing tier or explicitly
+accepting the risk.
+**Decision**: the person responsible for this decision has explicitly
+chosen to accept zero recovery capability for now rather than upgrade the
+tier. This is a deliberate, informed choice, not an oversight — recorded
+here per CLAUDE.md rule 22 so the tradeoff and its owner are traceable
+later, not just inferred from an unexplained absence of backups.
+**Consequence**: if data is lost or corrupted (bad migration, application
+bug, mistaken deletion, Supabase-side incident), there is currently no way
+to restore it. `audit_logs`/`activities` (append-only) and periodic manual
+export are the only mitigations, and neither is a substitute for a real
+backup/restore capability.
+**Status**: adopted — risk accepted, not resolved. Should be revisited
+before any pilot scales beyond a small, trusted set of organizations, per
+`docs/backup-and-restore.md`.

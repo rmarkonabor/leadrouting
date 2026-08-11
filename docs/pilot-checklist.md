@@ -14,12 +14,15 @@ short version to actually work through.
 - [x] Confirm `20260813090000_grant_table_privileges_to_data_api_roles.sql`
       is applied — the user confirmed this earlier. Still worth a real
       authenticated read/write smoke test before pilot traffic (§20).
-- [ ] Decide on the database backups gap: upgrade the Supabase project
+- [x] Decide on the database backups gap: upgrade the Supabase project
       tier, or explicitly and knowingly accept zero recovery capability
-      (§21, `docs/backup-and-restore.md`).
+      (§21, `docs/backup-and-restore.md`). **Decided: zero recovery
+      accepted for now.** Revisit before scaling past a small trusted pilot.
 - [ ] Confirm whether development/preview/production use genuinely
-      separate Supabase projects, not the same one (§29). If not
-      separate, treat as blocking.
+      separate Supabase projects, not the same one (§29). **Status
+      unknown** — check Vercel's per-environment
+      `NEXT_PUBLIC_SUPABASE_URL` values. If not separate, treat as
+      blocking until fixed or knowingly accepted.
 
 ## High/Medium priority — should be done, not a hard technical gate
 
