@@ -6,18 +6,17 @@ features. This document is the single source of truth for go/no-go
 status; it does not soften or omit findings to look more finished than
 the system actually is.
 
-**Verdict: NOT YET READY for live customer data — one release blocker
-remains.** Two release-blocking code issues were found and fixed during
-this audit (a real cross-tenant authorization gap, and a missing-
-privileges bug that would break the app for every real user); both fix
-migrations have now been applied to the linked Supabase project, per user
-confirmation. The database-backups gap has been explicitly, knowingly
-accepted by the person responsible for that decision, so it no longer
-blocks go-live (though the risk itself is unchanged — see §21). **One item
-remains genuinely open and blocking**: whether development/preview and
-production use separate Supabase projects is currently unknown even to
-the user — this must be checked before real customer data enters the
-system. See §31.
+**Verdict: no release-blocking items remain open.** Two release-blocking
+code issues were found and fixed during this audit (a real cross-tenant
+authorization gap, and a missing-privileges bug that would break the app
+for every real user); both fix migrations have been applied to the linked
+Supabase project, per user confirmation. The database-backups gap has been
+explicitly, knowingly accepted by the person responsible for that
+decision (the risk itself is unchanged — see §21). Development/preview
+and production have been confirmed to use separate Supabase projects (see
+§29). See §31 for the full history and §32 for the remaining non-blocking
+High/Medium/Low priority items still worth addressing before pilot
+traffic.
 
 ## How to read this document
 
@@ -383,26 +382,14 @@ environment, not all set to the same values.
 
 ## 29. Development, preview, and production separation
 
-**RELEASE BLOCKING — still unconfirmed.** Whether a genuinely separate
-Supabase project (not just a separate schema, and definitely not the same
-project) backs local/preview development versus the production project
-could not be checked from this session — no Supabase account access, only
-the linked project's connection details supplied for migration
-application. Asked directly, **the user does not currently know** whether
-these are separate. If preview deployments and real pilot data currently
-share one Supabase project, that is a serious risk: a developer's preview
-testing, a Preview-deployment bug, or an E2E test run could touch or
-corrupt real customer data, with no isolation boundary at all between
-"testing" and "production."
-
-**Action needed from the user before pilot traffic**: check the Vercel
-project's Environment Variables page (Settings → Environment Variables) —
-compare the `NEXT_PUBLIC_SUPABASE_URL` value scoped to Production against
-the value scoped to Preview/Development. If they're the same URL, it's one
-shared project (not separated) and this must be fixed (create a second
-Supabase project for dev/preview, or accept the risk knowingly, the same
-way backups were just accepted in §21) before pilot traffic. If they
-differ, this item is resolved — report back which case it is.
+**Verified — no issue.** Could not be checked directly from this session
+(no Supabase account access), so the user checked the Vercel project's
+Environment Variables page directly: `NEXT_PUBLIC_SUPABASE_URL` (and, by
+implication, the paired keys) has **different values for Production vs.
+Preview/Development**, confirming genuinely separate Supabase projects
+back each environment. Preview-deployment activity and E2E test runs
+cannot touch production data through this variable. This closes the item
+that was §31's last remaining release blocker.
 
 ## 30. Playwright coverage for critical flows
 
@@ -434,22 +421,18 @@ per the Milestone 9 plan's own manual-verification step.
    explicitly chosen to accept zero recovery capability for now rather
    than upgrade the Supabase project tier. No further action needed unless
    this decision is revisited.
-4. **Confirm dev/preview/production Supabase project separation (§29)** —
-   **still open and blocking.** Not verifiable from this session, and the
-   user does not currently know the answer either. Check the Vercel
-   dashboard's per-environment `NEXT_PUBLIC_SUPABASE_URL` values (see §29
-   for exact steps) before pilot traffic.
+4. ~~Confirm dev/preview/production Supabase project separation (§29)~~ —
+   **resolved.** The user confirmed `NEXT_PUBLIC_SUPABASE_URL` differs
+   between Production and Preview/Development in the Vercel dashboard —
+   genuinely separate Supabase projects back each environment.
 
-Items 1, 2, and 3 are resolved (3 via explicit risk acceptance, not a
-technical fix). **Item 4 is the sole remaining release blocker.** Do not
-point real customer data at this system until it's checked and either
-confirmed separate or the shared-project risk is explicitly accepted the
-same way item 3 was.
+**All four items are closed** (three resolved outright, one — backups —
+via explicit, informed risk acceptance rather than a technical fix). No
+release-blocking items remain open. See §32 for the non-blocking
+High/Medium/Low items still worth addressing before pilot traffic.
 
 ## 32. High/Medium/Low priority items (non-blocking, should still be resolved before pilot)
 
-- **High**: dev/preview/production Supabase separation confirmation (§29,
-  also listed as a blocker above since its answer could make it one).
 - **Medium**: confirm Sentry alert rules exist (§19); confirm Vercel env
   vars are actually scoped per environment (§28); run the Playwright
   critical journeys against a real deployment (§30).

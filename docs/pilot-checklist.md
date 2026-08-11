@@ -18,17 +18,15 @@ short version to actually work through.
       tier, or explicitly and knowingly accept zero recovery capability
       (§21, `docs/backup-and-restore.md`). **Decided: zero recovery
       accepted for now.** Revisit before scaling past a small trusted pilot.
-- [ ] Confirm whether development/preview/production use genuinely
-      separate Supabase projects, not the same one (§29). **Status
-      unknown** — check Vercel's per-environment
-      `NEXT_PUBLIC_SUPABASE_URL` values. If not separate, treat as
-      blocking until fixed or knowingly accepted.
+- [x] Confirm whether development/preview/production use genuinely
+      separate Supabase projects, not the same one (§29). **Confirmed
+      separate** — user verified `NEXT_PUBLIC_SUPABASE_URL` differs
+      between Production and Preview/Development in the Vercel dashboard.
+
+All release blockers are now checked off.
 
 ## High/Medium priority — should be done, not a hard technical gate
 
-- [ ] Confirm Vercel environment variables are actually scoped per
-      environment (Development/Preview/Production), not all identical
-      (§28).
 - [ ] Confirm at least one Sentry alert rule exists (new issue, or
       error-rate spike) so a production error doesn't go unnoticed (§19).
 - [ ] Run the six Playwright critical journeys against a real preview
