@@ -37,8 +37,8 @@ All release blockers are now checked off.
 ## Verified — no action needed (for reference, not to re-check)
 
 - Tenant isolation, Row Level Security, server authorization (aside from
-  the fixed gap above), secret handling, publishable/secret key
-  separation, routing transactions, assignment uniqueness, round-robin
+  the fixed gap above), secret handling, client-safe vs. server-only
+  Supabase key separation, routing transactions, assignment uniqueness, round-robin
   concurrency (fixed), queue/cron idempotency, webhook signatures, replay
   protection, CRM duplicate prevention, PII exclusion from logs/Sentry,
   source map hardening (fixed), migration reversibility, data
