@@ -46,6 +46,17 @@ export interface ManualLeadInput {
  * (docs/permissions-matrix.md "Manually assign / reassign a lead" is the
  * closest analogue; an agent cannot). No field mapping/duplicate detection
  * runs on this path — it is not an external, untrusted submission.
+ *
+ * Delegates to the `create_manual_lead` database function, which inserts
+ * the lead and calls `route_lead` on it within the same transaction —
+ * mirroring how `record_lead_submission` routes leads from the token-based
+ * intake path (CLAUDE.md rule 21: critical assignment operations run as
+ * single-transaction database functions, not multi-request
+ * client-orchestrated flows). The org_admin/team_manager check here is a
+ * friendly, specific error for the common case; `create_manual_lead` itself
+ * independently re-checks the same authorization (CLAUDE.md rule 8: never
+ * rely on one layer alone) since it's callable directly by any
+ * authenticated session, not just through this function.
  */
 export async function createManualLead(
   organizationSlug: string | undefined,
@@ -83,26 +94,22 @@ export async function createManualLead(
     }
   }
 
-  const { data, error } = await supabase
-    .from("leads")
-    .insert({
-      organization_id: membership.organizationId,
-      first_name: parsed.data.firstName ?? null,
-      last_name: parsed.data.lastName ?? null,
-      email: parsed.data.email ?? null,
-      phone: parsed.data.phone ?? null,
-      street_address: parsed.data.streetAddress ?? null,
-      unit_number: parsed.data.unitNumber ?? null,
-      neighborhood: parsed.data.neighborhood ?? null,
-      city: parsed.data.city ?? null,
-      county: parsed.data.county ?? null,
-      state_province: parsed.data.stateProvince ?? null,
-      postal_code: parsed.data.postalCode ?? null,
-      country: parsed.data.country ?? null,
-      message: parsed.data.message ?? null,
-    })
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc("create_manual_lead", {
+    p_organization_id: membership.organizationId,
+    p_first_name: parsed.data.firstName ?? null,
+    p_last_name: parsed.data.lastName ?? null,
+    p_email: parsed.data.email ?? null,
+    p_phone: parsed.data.phone ?? null,
+    p_street_address: parsed.data.streetAddress ?? null,
+    p_unit_number: parsed.data.unitNumber ?? null,
+    p_neighborhood: parsed.data.neighborhood ?? null,
+    p_city: parsed.data.city ?? null,
+    p_county: parsed.data.county ?? null,
+    p_state_province: parsed.data.stateProvince ?? null,
+    p_postal_code: parsed.data.postalCode ?? null,
+    p_country: parsed.data.country ?? null,
+    p_message: parsed.data.message ?? null,
+  });
 
   if (error) {
     throw toAppError(error);
@@ -113,7 +120,7 @@ export async function createManualLead(
     actorUserId: user.id,
     action: "lead_created_manually",
     entityType: "lead",
-    entityId: data.id,
+    entityId: data.leadId,
   });
 
   return data;
