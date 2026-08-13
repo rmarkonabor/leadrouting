@@ -76,7 +76,41 @@ environment** (in particular: Supabase project URL/keys, if dev/preview
 uses a different Supabase project than production per
 `docs/production-readiness.md` §29).
 
-## 3. Deploy to Preview
+## 3. Configure Supabase-side Cron wiring (required for `CRON_SECRET` to do anything)
+
+The Milestone 6/8 Cron jobs (`process-assignment-notifications`,
+`process-crm-sync`, `process-outbound-webhooks`) are registered by
+`pg_cron` on the Supabase project itself, not by Vercel Cron. Each job
+calls the app's internal queue-processing route over HTTP via `pg_net`,
+using two Postgres custom config settings — `app.settings.app_url` and
+`app.settings.cron_secret` — read at call time
+(`supabase/migrations/20260810050000_milestone6_assignment_lifecycle.sql`,
+`supabase/migrations/20260813070000_milestone8_integrations.sql`). Setting
+`CRON_SECRET` in Vercel alone does nothing: the `where ... is not null`
+guard on each job means it silently no-ops until both settings exist on
+Supabase too.
+
+1. In the Supabase SQL Editor for the target project (dev/preview or
+   production — each has its own settings), run:
+   ```sql
+   alter database postgres set app.settings.app_url = '<the app's base URL for this environment>';
+   alter database postgres set app.settings.cron_secret = '<the exact same value as this environment's CRON_SECRET in Vercel>';
+   ```
+2. The two values must match per environment — production's
+   `app.settings.cron_secret` must equal production's Vercel `CRON_SECRET`,
+   and likewise for preview/dev. Do not reuse a preview secret in
+   production or vice versa.
+3. Confirm `pg_cron` and `pg_net` are enabled on the project (Database >
+   Extensions). The scheduling migration only registers the HTTP-calling
+   jobs when both are present — see `is_cron_available()` and the
+   `pg_extension` check next to each `cron.schedule(...)` call.
+4. Verify: after both settings are applied, check
+   `cron.job_run_details` (or wait for the next minute-cadence run) for a
+   `process-assignment-notifications` invocation returning HTTP 200/204
+   rather than 401 (secret mismatch) or a connection failure (wrong
+   `app_url`).
+
+## 4. Deploy to Preview
 
 1. Push the branch (or open/update a PR) — Vercel's GitHub integration
    creates a Preview deployment automatically. No manual trigger needed.
@@ -97,7 +131,7 @@ uses a different Supabase project than production per
    (See `tests/e2e/README.md` for the additional env vars each of the six
    Milestone 9 journeys needs, and what each one covers.)
 
-## 4. Deploy to Production
+## 5. Deploy to Production
 
 **Never do this without explicit approval from the person responsible for
 this decision — CLAUDE.md rule 13. This is not a step to perform as part
@@ -116,13 +150,13 @@ of routine development.**
    Preview deployment to Production as a way to bypass this — the point of
    restricting production to `main` is that every production deploy has a
    corresponding merged, reviewed commit.
-5. Immediately after deploy: repeat the smoke checks from step 3.4-3.5
+5. Immediately after deploy: repeat the smoke checks from step 4.4-4.5
    above (authenticated read/write works; a real error reaches Sentry)
    against the production URL specifically.
 6. Watch `docs/incident-response.md`'s monitoring guidance for the first
    hour after any production deploy.
 
-## 5. Rollback
+## 6. Rollback
 
 If a production deploy causes a regression:
 
