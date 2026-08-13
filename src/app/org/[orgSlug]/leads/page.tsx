@@ -77,6 +77,10 @@ export default async function LeadListPage({
     <main>
       <h1>Leads</h1>
 
+      <p>
+        <Link href={`/org/${orgSlug}/leads/new`}>New lead</Link>
+      </p>
+
       <form method="get">
         <label>
           Search

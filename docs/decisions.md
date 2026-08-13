@@ -1472,3 +1472,42 @@ environment (dev/preview/production) before they start actually running
 6/8 migrations. `docs/deployment-runbook.md` §3 was rewritten to walk
 through this.
 **Status**: adopted.
+
+## ADR-061: Manual lead entry never routed — added `create_manual_lead`, and its first UI
+
+**Context**: while building the "New lead" admin UI (there was previously
+no way to create a lead from inside the app at all — `modules/leads/
+manual-lead-entry.ts`'s `createManualLead` existed since Milestone 3 but no
+page or component ever called it), found that it only ever did a plain
+`insert into leads`. Unlike the token-based intake path, where
+`record_lead_submission` calls `route_lead` inside the same transaction
+immediately after creating the lead, nothing ever routed a manually
+entered lead — no trigger, no follow-up call, nothing. Every such lead
+would have sat at `assignment_status = 'unassigned'` forever, invisible to
+any recipient.
+**Decision**: added `create_manual_lead`, a single-transaction database
+function mirroring `record_lead_submission`'s shape — insert the lead,
+then call `route_lead` on it, return both the lead id and the routing
+outcome — rather than having the TypeScript layer insert the lead and
+issue a second, separate `route_lead` RPC call afterward, which would
+violate CLAUDE.md rule 21 (critical assignment operations run as
+single-transaction database functions, never multi-request
+client-orchestrated flows). `modules/leads/manual-lead-entry.ts` now calls
+this function instead of `.from("leads").insert(...)`.
+Authorization (org_admin, or a team_manager for at least one team in the
+target organization) is checked both in TypeScript (for a specific,
+friendly error) and independently inside `create_manual_lead` itself,
+since the function is granted to `authenticated` broadly and so is
+callable directly with an arbitrary `p_organization_id` — without the
+in-function check, a user could create (and immediately route) leads in
+an organization they don't belong to. This is the same class of gap
+`20260813100000_validate_manual_assignment_org_membership.sql` fixed for
+manual assignment; CLAUDE.md rule 8 requires this layered check, not one
+alone.
+Added the first actual UI for this path: `/org/<slug>/leads/new`, a plain
+form posting to `createManualLeadFormAction`, which shows the routing
+outcome (`assigned`/`manual_review`/etc.) after submission and links to
+the created lead.
+**Status**: adopted. See
+`supabase/migrations/20260813120000_manual_lead_entry_routes_immediately.sql`
+and `tests/integration/manual-lead-entry.test.ts`.

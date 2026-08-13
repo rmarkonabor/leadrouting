@@ -1505,6 +1505,25 @@ export interface Database {
         Args: { p_lead_id: string };
         Returns: Record<string, unknown>;
       };
+      create_manual_lead: {
+        Args: {
+          p_organization_id: string;
+          p_first_name: string | null;
+          p_last_name: string | null;
+          p_email: string | null;
+          p_phone: string | null;
+          p_street_address: string | null;
+          p_unit_number: string | null;
+          p_neighborhood: string | null;
+          p_city: string | null;
+          p_county: string | null;
+          p_state_province: string | null;
+          p_postal_code: string | null;
+          p_country: string | null;
+          p_message: string | null;
+        };
+        Returns: { leadId: string; routing: Record<string, unknown> };
+      };
       simulate_routing: {
         Args: { p_lead_id: string };
         Returns: Record<string, unknown>;
