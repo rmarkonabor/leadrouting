@@ -1,0 +1,27 @@
+title = "leadrouting gitleaks config"
+
+[extend]
+useDefault = true
+
+# tests/unit/sentry-sanitize.test.ts intentionally contains fake,
+# credential-shaped fixture values (e.g. "at_live_abc123", "rt_abc123") to
+# verify the Sentry sanitizer strips CRM/webhook credentials from events —
+# see that file's "Milestone 9 production-shaped event review" describe
+# block. These are not real secrets and never have been; gitleaks' generic
+# entropy-based rule flags them anyway because they are shaped like
+# tokens, which is exactly the point of the test. Excluded by path rather
+# than weakening any rule globally.
+#
+# docs/pilot-checklist.md: an earlier commit's prose read "publishable/
+# secret key separation" (no real secret anywhere in the file) - gitleaks'
+# generic-api-key entropy rule flagged that phrase. The prose was later
+# reworded to avoid the trigger, but gitleaks scans full commit history
+# (`git log -p`), so the earlier commit that introduced the phrase still
+# matches within this PR's scanned range even after the fix. Allowlisted
+# by path rather than rewriting history.
+[allowlist]
+  description = "Fake/false-positive credential-shaped matches, not real secrets"
+  paths = [
+    '''tests/unit/sentry-sanitize\.test\.ts''',
+    '''docs/pilot-checklist\.md''',
+  ]

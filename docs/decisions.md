@@ -1259,3 +1259,170 @@ before either function is ever called — mirrors `resolve_lead_source`/
 connection's own admin-configured `statusMapping` are ever applied — spec
 §42 item 7's "selected" lead status changes, not any string a CRM sends.
 **Status**: adopted.
+
+## ADR-056: Fixed a round-robin first-assignment race condition found by Milestone 9's higher-parallelism concurrency review
+
+**Context**: Milestone 9's concurrency review re-ran the release-blocking
+routing scenarios (spec §54) at higher parallelism than Milestone 5's
+original verification (ADR-038: 30 leads / 3 agents, run sequentially
+enough to never race the very first assignment for a team+flow). The new
+test (`tests/integration/milestone9-concurrency.test.ts`) routes 60 leads
+genuinely concurrently — real, separate Postgres connections, real
+`Promise.all` — against a fresh 5-agent round robin. On the first run this
+produced a 13/12/12/12/11 split instead of the required exact 12 each, and
+the "no unresolved critical security issue" / "all release-blocking tests
+pass" bars in this milestone's definition of done mean this could not be
+waved through.
+**Root cause**: `compute_routing_decision`'s round-robin/weighted-round-
+robin branch (and the identical team-fallback branch) issued `select ...
+from routing_state where ... for update` to read and lock the rotation
+cursor. `SELECT ... FOR UPDATE` against a query that matches zero rows
+takes no lock — there is no row to lock. The very first routing decision
+ever made for a given (organization, team, flow) has no `routing_state`
+row yet, so multiple concurrent `route_lead` calls landing on that same
+"row doesn't exist yet" state all independently read
+`last_assigned_user_id is null` and all pick the same first candidate,
+rather than serializing on who goes first. ADR-038's locking design was
+correct for every assignment _after_ the first; the gap was specifically
+the bootstrap case, which a smaller/slower concurrent load (M5's original
+check) never happened to hit.
+**Decision**: `20260813080000_milestone9_routing_state_race_fix.sql`
+replaces `compute_routing_decision` to `insert into routing_state (...)
+... on conflict (organization_id, team_id, routing_flow_id) do nothing`
+immediately before each `for update` read, whenever `p_lock_state` is
+true. Postgres serializes concurrent inserts on the same conflict key (a
+second concurrent insert blocks until the first commits, then sees the row
+and no-ops), so by the time any caller reaches the following `for update`,
+the row is guaranteed to exist and locks exactly as originally intended —
+including for the very first assignment. `simulate_routing`
+(`p_lock_state = false`) is unaffected: it still takes no lock and writes
+nothing, unchanged from ADR-038.
+**Verification**: with the fix applied, the same 60-concurrent-lead test
+produces an exact 12/12/12/12/12 split and zero duplicate active
+assignments; a second test in the same file races 25 concurrent
+`route_lead` calls against one lead (exactly one gets `assigned`, the rest
+`already_assigned`); a third races 20 concurrent `simulate_routing` calls
+against 10 concurrent real `route_lead` calls and confirms the simulated
+lead never gets an assignment and the rotation cursor advances by exactly
+10, not 30. Per the standing project rule "do not continue when
+concurrency tests fail — routing concurrency failures are release
+blocking," this was root-caused and fixed rather than the test being
+loosened.
+**Status**: adopted.
+
+## ADR-057: Grant table-level privileges to `authenticated`/`service_role` explicitly — no migration ever did, and Supabase no longer does it for you
+
+**Context**: the CI/deployment-safety-checks PR turned on `supabase
+start` + the full `tests/integration` suite in real GitHub Actions for the
+first time (prior verification of this suite ran ad hoc against a
+hand-provisioned local Postgres instance in a sandbox, not the actual
+Supabase CLI). Every integration test file failed immediately with
+`permission denied for table <name>`. Root cause:
+`supabase/config.toml`'s own `auto_expose_new_tables` setting documents
+that newly created public-schema tables are **no longer** automatically
+granted to the `anon`/`authenticated`/`service_role` Data API roles —
+"the new cloud default" is to require an explicit `GRANT`. No migration
+across Milestones 1–9 ever issued one; every table's access has relied
+entirely on RLS policies, which Postgres never even reaches without the
+underlying table-level privilege existing first. This was invisible in
+every prior local sandbox verification because that sandbox's Postgres
+instance had grants applied by hand, once, outside any migration file —
+worked around, never actually fixed.
+**Decision**: `20260813090000_grant_table_privileges_to_data_api_roles.sql`
+grants `SELECT, INSERT, UPDATE, DELETE` on every existing table to
+`authenticated` and `service_role`, and sets
+`ALTER DEFAULT PRIVILEGES ... GRANT ... ON TABLES` so any table created by
+a future migration gets the same grants automatically. `anon` receives no
+table grants at all: every pre-auth code path (lead intake, inbound CRM
+webhooks) calls a `SECURITY DEFINER` function via RPC rather than
+querying a table directly (ADR-011, ADR-055), and a `SECURITY DEFINER`
+function runs with its owner's privileges, not the caller's — confirmed
+by grepping every `createAnonSupabaseClient` call site in `src/`, each of
+which only ever calls `.rpc(...)`.
+**Why this doesn't weaken tenant isolation or role scoping**: RLS remains
+the real enforcement layer. A table-level grant only removes the
+"Postgres denies the query before RLS is ever consulted" false negative;
+it does not grant access to any row or command RLS itself doesn't already
+allow. `audit_logs`, for example, has RLS policies for `SELECT` and
+`INSERT` only — no `UPDATE`/`DELETE` policy exists, so those commands
+still affect zero rows for every role, table-level grant or not, because
+Postgres RLS denies any command with no matching permissive policy. This
+is the same layered GRANT + RLS model Supabase's own documentation
+recommends, not a new pattern introduced here.
+**Verification**: applied against a fresh local Postgres instance with
+all 12 migrations and no manual workaround grants of any kind — the full
+`tests/integration` suite (63 tests across 9 files) passes cleanly, the
+same result previously achieved only with hand-applied, undocumented
+grants.
+**Status**: adopted.
+
+## ADR-058: Release-blocking fix — manual assignment never validated the target user/team belongs to the lead's organization
+
+**Context**: the pre-pilot production readiness audit reviewed every
+Server Action / DB function that takes a free-text identifier from an
+authenticated admin, rather than deriving candidates from a scoped query
+(as `route_lead`'s eligibility computation does). `manually_assign_lead`/
+`manually_reassign_lead` (both thin wrappers over
+`manually_assign_or_reassign_lead`) take a `p_user_id` and optional
+`p_team_id` directly from the admin's form input (see
+`src/modules/assignments/manual-assignment.ts`,
+`src/modules/manual-review/manual-assign-form.tsx`) and had never checked
+that either belonged to the lead's own organization — only that the
+_caller_ was an `org_admin` (or a team_manager permitted for
+`p_team_id`). An org_admin of organization A could submit any UUID at
+all — a real user or team from organization B, or a value matching no
+user/team — and the function would still create the assignment, update
+`leads.assigned_user_id`/`assigned_team_id`, and fire
+`enqueue_assignment_notification` targeting that user_id.
+**Impact**: this is a genuine cross-tenant exposure, not just a
+data-integrity nicety. `leads`/`assignments` RLS still protects the lead's
+_own_ row from being read back by the foreign user (their
+`organization_users` row for organization A doesn't exist), but the
+notification itself — its title/body describing the lead, resolved and
+delivered by `process-assignment-notifications` — is generated and
+inserted directly, which RLS does nothing to stop since it's a targeted
+write, not a read the foreign user performs themselves. Classified
+**release blocking**: a real path for organization A's lead data to reach
+a user account outside organization A.
+**Decision**: `20260813100000_validate_manual_assignment_org_membership.sql`
+adds two checks at the top of `manually_assign_or_reassign_lead`, before
+any mutation: `p_user_id` must have an `active` `organization_users` row
+for the lead's own `organization_id`, and if `p_team_id` is provided, it
+must belong to that same organization. Both raise a clear exception
+(`22023`) rather than silently no-op-ing.
+**Verification**: added three tests to
+`tests/integration/milestone6-assignment-lifecycle.test.ts` (11a/11b/11c —
+foreign user, nonexistent user, foreign team) and confirmed all three
+**fail against the pre-fix function** (proving they test real behavior,
+not a vacuous assertion) and **pass with the fix applied**, alongside the
+full existing suite (66/66 passing, no regressions).
+**Root cause note**: this gap existed since Milestone 6 and was missed by
+that milestone's own "cross-organization access" test (#12), which only
+exercised _read_ access to `notifications`/`integration_jobs` as a
+foreign-org admin — never the _write_ path of manually assigning a lead
+to an arbitrary identifier. Recorded here so future manual-input
+DB-function work checks organization membership explicitly rather than
+assuming RLS alone covers write-side authorization.
+**Status**: adopted.
+
+## ADR-059: Database backups gap knowingly accepted for now, not resolved
+
+**Context**: the production readiness audit (`docs/production-readiness.md`
+§21) found the linked Supabase project is on the free tier, which has no
+automatic backups or point-in-time recovery. This was originally
+classified release blocking, since it cannot be closed by any engineering
+work — only by upgrading the Supabase project's billing tier or explicitly
+accepting the risk.
+**Decision**: the person responsible for this decision has explicitly
+chosen to accept zero recovery capability for now rather than upgrade the
+tier. This is a deliberate, informed choice, not an oversight — recorded
+here per CLAUDE.md rule 22 so the tradeoff and its owner are traceable
+later, not just inferred from an unexplained absence of backups.
+**Consequence**: if data is lost or corrupted (bad migration, application
+bug, mistaken deletion, Supabase-side incident), there is currently no way
+to restore it. `audit_logs`/`activities` (append-only) and periodic manual
+export are the only mitigations, and neither is a substitute for a real
+backup/restore capability.
+**Status**: adopted — risk accepted, not resolved. Should be revisited
+before any pilot scales beyond a small, trusted set of organizations, per
+`docs/backup-and-restore.md`.

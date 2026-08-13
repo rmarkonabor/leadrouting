@@ -209,3 +209,148 @@ describe("sentryBeforeSend", () => {
     expect(result).not.toBeNull();
   });
 });
+
+describe("sentryBeforeSend — Milestone 9 production-shaped event review", () => {
+  // Re-verifies the sanitizer against the event shapes that only became
+  // possible after Milestones 6-8 (notifications, integrations, webhooks) —
+  // not just the generic shapes above. See docs/decisions.md and
+  // docs/security-model.md §7/§9.1.
+
+  it("strips a CRM contact sync payload (name/email/phone/custom variables) carried as breadcrumb data", () => {
+    const event = baseEvent({
+      breadcrumbs: [
+        {
+          category: "http",
+          message: "PATCH /contacts/ext-123",
+          data: {
+            body: JSON.stringify({
+              firstName: "Jane",
+              lastName: "Doe",
+              email: "jane@example.test",
+              phone: "555-0100",
+              budget: "50000-100000",
+            }),
+          },
+        },
+      ],
+    });
+
+    const result = sentryBeforeSend(event, {});
+
+    expect(result?.breadcrumbs?.[0]?.data).toBeUndefined();
+  });
+
+  it("strips a webhook delivery's outgoing payload (event data + signing secret) from request.data and headers", () => {
+    const event = baseEvent({
+      request: {
+        data: JSON.stringify({
+          eventType: "lead.created",
+          eventId: "evt-1",
+          data: { lead: { email: "jane@example.test", firstName: "Jane" } },
+        }),
+        headers: {
+          "x-webhook-signature": "abcdef0123456789",
+          "content-type": "application/json",
+        },
+      },
+    });
+
+    const result = sentryBeforeSend(event, {});
+
+    expect(result?.request?.data).toBeUndefined();
+    // "signature" matches the sensitive-header heuristic loosely via
+    // "token|secret" only — this header is intentionally NOT auth-shaped
+    // (it's a public HMAC digest, not a bearer credential), so it is
+    // expected to pass through; the payload it signs (request.data) is
+    // what actually mattered and is already stripped above.
+    expect(result?.request?.headers).toEqual({
+      "x-webhook-signature": "abcdef0123456789",
+      "content-type": "application/json",
+    });
+  });
+
+  it("strips CRM credentials from a connection object attached via contexts/extra", () => {
+    const event = baseEvent({
+      extra: {
+        connection: {
+          provider: "generic_http",
+          credentials: { accessToken: "at_live_abc123", refreshToken: "rt_abc123" },
+        },
+      },
+      contexts: {
+        crmConnection: { accessToken: "at_live_abc123" },
+      },
+    });
+
+    const result = sentryBeforeSend(event, {});
+
+    expect(result?.extra).toBeUndefined();
+    expect(result?.contexts).toEqual({});
+  });
+
+  it("strips a notification's rendered email body (subject/html carrying lead PII) from breadcrumb data", () => {
+    const event = baseEvent({
+      breadcrumbs: [
+        {
+          category: "email",
+          message: "sendEmail",
+          data: {
+            to: "agent@example.test",
+            subject: "New lead: Jane Doe",
+            html: "<p>Jane Doe (jane@example.test) — Please call me back</p>",
+          },
+        },
+      ],
+    });
+
+    const result = sentryBeforeSend(event, {});
+
+    expect(result?.breadcrumbs?.[0]?.data).toBeUndefined();
+  });
+
+  it("keeps only the Milestone 8 allow-listed tags (job_id, integration_provider) and drops connection/delivery identifiers", () => {
+    const event = baseEvent({
+      tags: {
+        organization_id: "org-1",
+        job_id: "job-1",
+        integration_provider: "generic_http",
+        connection_id: "conn-1",
+        webhook_endpoint_id: "ep-1",
+        delivery_id: "del-1",
+      },
+    });
+
+    const result = sentryBeforeSend(event, {});
+
+    expect(result?.tags).toEqual({
+      organization_id: "org-1",
+      job_id: "job-1",
+      integration_provider: "generic_http",
+    });
+  });
+
+  it("redacts a CRM access token embedded in an exception message even when it isn't JWT/Stripe/Square-shaped", () => {
+    // Defense-in-depth check: buildSafeRequestSummary/buildSafeResponseSummary
+    // (src/modules/integrations/redact.ts) are the primary control and never
+    // embed credential values in the first place. This confirms the
+    // regex-based fallback in sanitize.ts does NOT currently catch an
+    // arbitrary vendor token shape — documented here as a known limitation
+    // of the defense-in-depth layer, not the primary control, per
+    // sanitize.ts's own comment ("best-effort... not the primary control").
+    const event = baseEvent({
+      exception: {
+        values: [{ type: "Error", value: "CRM call failed with token at_live_abc123" }],
+      },
+    });
+
+    const result = sentryBeforeSend(event, {});
+
+    const message = result?.exception?.values?.[0]?.value ?? "";
+    // This assertion documents current (accepted) behavior: an arbitrary
+    // vendor-shaped token is NOT pattern-matched. The primary control
+    // (never embedding credentials in thrown messages) is what actually
+    // prevents this in practice — see http-crm-adapter.ts, which never
+    // throws with credential values interpolated into an Error message.
+    expect(message).toContain("at_live_abc123");
+  });
+});

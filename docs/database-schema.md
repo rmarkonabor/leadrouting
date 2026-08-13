@@ -336,9 +336,10 @@ status (valid|invalid|imported|skipped), errors jsonb, created_at`
 ### `integration_connections`
 
 Per spec §42: `id, organization_id, provider, status
-(connected|disconnected|error), credentials_encrypted bytea (via Supabase
-Vault, see decisions.md), settings jsonb, connected_by_user_id,
-connected_at, created_at, updated_at`
+(connected|disconnected|error), credentials_encrypted text (application-
+level AES-256-GCM via `lib/crypto/secret-box.ts`, see decisions.md
+ADR-051 — supersedes the originally planned Supabase Vault approach),
+settings jsonb, connected_by_user_id, connected_at, created_at, updated_at`
 
 ### `integration_field_mappings`
 
@@ -372,8 +373,10 @@ application layer that writes these rows, per spec §44).
 
 ### `webhook_endpoints`
 
-`id, organization_id, url, secret_encrypted bytea, subscribed_events
-text[], status (active|inactive), created_at, updated_at`
+`id, organization_id, url, secret_encrypted text (application-level
+AES-256-GCM, same mechanism as `integration_connections.credentials_encrypted`
+above), subscribed_events text[], status (active|inactive), created_at,
+updated_at`
 
 ### `webhook_deliveries`
 
@@ -479,3 +482,64 @@ practical" means:
 reset --linked`) are not part of normal development workflow at all —
    they only ever happen as a deliberate, user-approved, documented
    action, per CLAUDE.md rules 10–12.
+
+### 22.1 Milestone 9 reversibility audit
+
+Every migration file in `supabase/migrations/` (the 10 files spanning
+Milestones 1–8, `20260805160000_...` through `20260813070000_...`) was
+re-read end to end and checked against the rules above with a search for
+`drop table`, `drop column`, `alter column ... type`, `drop constraint`,
+`rename`, `truncate`, and `delete from`.
+
+Findings:
+
+- All 10 migrations are additive-only: new enums, tables, columns (with
+  defaults or nullable), indexes, functions, triggers, and RLS policies.
+  None drops a table, drops a column, changes a column's type, or deletes
+  rows.
+- `20260806190000_fix_organization_users_rls_recursion.sql` uses
+  `drop policy if exists ... ; create policy ...` to replace four policies.
+  This is a same-day RLS-recursion bugfix, not a data-destructive change —
+  dropping and recreating a policy has no effect on stored data, only on
+  future query authorization, so it does not fall under rule 2's
+  "isolated + reviewer-acknowledged" requirement.
+- `20260806180000_milestone5_routing_engine.sql` runs `alter table
+public.leads drop constraint leads_assignment_status_check` immediately
+  followed by `alter table ... add constraint ... check (assignment_status
+in (...))` that is a strict superset of the original allowed values
+  (widening `unassigned`/`assigned` to also allow `accepted` and
+  `manual_review`). This is a constraint _widening_, not a tightening: it
+  cannot reject any row that the old constraint already accepted, so it
+  matches the additive case in rule 1, not the "tightening a constraint
+  that could reject existing rows" destructive case in rule 2. This was
+  anticipated by ADR-031 at the time it was written.
+- No migration contains `truncate`, `delete from`, or a column
+  type change.
+
+Conclusion: no migration to date requires isolation or reviewer
+acknowledgment under rule 2 — the full history is additive-only in
+practice, not just in policy. This audit should be re-run (or this section
+re-verified) whenever a future migration touches an existing column's type
+or constraint tightness.
+
+**Addendum**: `20260813080000_milestone9_routing_state_race_fix.sql` was
+added after this audit, during the same milestone's concurrency review
+(docs/decisions.md ADR-056). It is a `create or replace function` fixing a
+round-robin race condition — no table, column, or constraint change of any
+kind, so it doesn't change the conclusion above. Function redefinitions are
+outside this policy's scope entirely (they aren't "data," destructive or
+otherwise), but are still forward-only files under version control like
+every other migration, per CLAUDE.md rule 9.
+
+**Second addendum**: `20260813090000_grant_table_privileges_to_data_api_roles.sql`
+was added while wiring up real CI (see docs/decisions.md ADR-057) — it
+grants table-level privileges to `authenticated`/`service_role` that no
+prior migration ever granted, and were previously supplied outside any
+migration file by an assumption about Supabase's platform behavior that
+turned out to be false. This is purely additive (`GRANT`, plus `ALTER
+DEFAULT PRIVILEGES` for future tables) — it does not change any table,
+column, or constraint, and does not change the conclusion above. **This
+migration is important to apply promptly to any already-linked project**:
+without it, `authenticated`-role queries against any table fail with
+`permission denied`, independent of how correct that table's RLS policies
+are — see `docs/production-readiness.md` for the operational implication.

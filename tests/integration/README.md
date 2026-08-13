@@ -119,3 +119,34 @@ SQL, and are covered at the unit level in
 `tests/unit/notifications/process-assignment-notifications.test.ts`
 using `TestQueueAdapter`/`TestEmailAdapter` (no real queue or email
 service involved).
+
+## Milestone 9 tenant-isolation re-verification
+
+As part of Milestone 9's tenant-isolation review, all 8 files above were
+run together (not one at a time, per-module, as in earlier milestones)
+against a single Postgres instance with all migrations applied in order —
+the same shape of database a real deploy produces, rather than a fresh
+per-file fixture. Result: 8 files, 60/60 tests passing, confirming that no
+later milestone's migration or RLS policy regressed an earlier
+milestone's tenant isolation.
+
+**Correction (superseded assumption)**: this section originally assumed
+`supabase start`'s local stack (and, by extension, a real Supabase
+project) auto-grants table-level privileges to
+`anon`/`authenticated`/`service_role` the way older Supabase projects
+used to. That assumption was wrong and was only masked because the
+sandbox this review first ran in had those grants applied by hand,
+outside any migration file. The first time this suite ran against a real
+`supabase start` in actual GitHub Actions CI (the
+`ci/deployment-safety-checks` PR), every file failed with `permission
+denied for table ...` — `supabase/config.toml`'s own
+`auto_expose_new_tables` setting documents that new tables are **not**
+auto-exposed by default anymore ("the new cloud default"). See
+`docs/decisions.md` ADR-057 for the root cause and the fix
+(`supabase/migrations/20260813090000_grant_table_privileges_to_data_api_roles.sql`,
+which grants the missing privileges explicitly and sets default
+privileges for future tables). With that migration in place, this suite
+passes against a real `supabase start` — or a bare hand-rolled Postgres
+instance with `grant usage on schema auth` (only `auth` schema usage,
+which really is part of Supabase's fixed platform bootstrap, not
+something any migration grants) — with no other manual grants needed.

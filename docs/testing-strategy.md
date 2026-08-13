@@ -84,13 +84,44 @@ Critical journeys, run against a preview deployment before any pilot:
 6. Cross-tenant check: a second organization's admin cannot see the first
    organization's leads, teams, or routing flows through the UI.
 
+All six are now automated in `tests/e2e/` (`org-invite-activate.spec.ts`,
+`team-territory-routing-publish.spec.ts`, `intake-to-accept.spec.ts`,
+`expiration-reassignment.spec.ts`, `manual-review-assignment.spec.ts`,
+`cross-tenant-isolation.spec.ts` — see `tests/e2e/README.md` for exactly
+what each one does and doesn't cover, and why). Two carry honest,
+documented scope limits rather than a fragile or slow simulation: journey
+1's account _activation_ half requires clicking a real emailed invite
+link (Supabase Auth's own hosted flow, not app UI) and isn't driven
+headlessly; journey 4 verifies the UI-visible _result_ of an
+expiration+reassignment already present in seed data rather than forcing
+a real Supabase Cron job to fire on demand (that transition itself is
+covered directly against Postgres in
+`tests/integration/milestone6-assignment-lifecycle.test.ts`). Per the
+Milestone 9 plan's own manual-verification step, all six are also meant to
+be walked by hand once against a real preview deployment before pilot
+traffic, specifically to catch anything a script wouldn't — see
+`docs/production-readiness.md`.
+
 ## 4. CI gating
 
-Every PR runs, in order: format check, lint, `tsc --noEmit` (strict mode),
-Vitest (unit + integration against a local Supabase stack spun up in CI),
-and the Next.js production build. Playwright runs on a schedule / pre-pilot
-gate once introduced, not on every PR, to keep CI fast — exact trigger
-policy (nightly vs. pre-release tag) decided at Milestone 9.
+As of Milestone 9, `.github/workflows/ci.yml` runs two jobs on every PR and
+every push to `main`:
+
+- `checks`: format check, lint, `tsc --noEmit` (strict mode), Vitest unit
+  tests, `npm audit --audit-level=high` (dependency vulnerability scan per
+  spec §52 item 18 — fails the build on any high/critical advisory), and
+  the Next.js production build.
+- `integration-tests`: uses `supabase/setup-cli` to run `supabase start`
+  (a real local Postgres/Auth/PostgREST stack with every
+  `supabase/migrations/` file applied), then runs `tests/integration/*`
+  with `TEST_DATABASE_URL` pointed at it — the RLS/tenant-isolation and
+  routing-concurrency suites that were previously skipped in CI (see
+  `tests/integration/README.md`) now run on every PR.
+
+Playwright runs on a schedule / pre-pilot gate once introduced, not on
+every PR, to keep CI fast — exact trigger policy (nightly vs. pre-release
+tag) decided at Milestone 9 alongside the critical-journey suite itself
+(§3b).
 
 ## 5. What is explicitly not tested in Phase 1
 
