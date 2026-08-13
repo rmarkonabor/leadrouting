@@ -45,10 +45,6 @@ describe.skipIf(!TEST_DATABASE_URL)("create_manual_lead", () => {
     );
   }
 
-  async function resetCaller() {
-    await client.query("reset role");
-  }
-
   beforeAll(async () => {
     await client.connect();
     await client.query("begin");
@@ -118,7 +114,7 @@ describe.skipIf(!TEST_DATABASE_URL)("create_manual_lead", () => {
 
     await callAs(adminAId);
     await client.query(`select public.publish_routing_flow($1)`, [flowId]);
-    await resetCaller();
+    await client.query("reset role");
   });
 
   afterAll(async () => {
@@ -131,7 +127,10 @@ describe.skipIf(!TEST_DATABASE_URL)("create_manual_lead", () => {
   });
 
   afterEach(async () => {
-    await resetCaller();
+    // rollback to savepoint recovers even from an aborted transaction (an
+    // ordinary command like `reset role` cannot) and, since `callAs`'s
+    // `set local role` / jwt claims are transaction-scoped, this alone
+    // also undoes them for the next test — no separate reset needed.
     await client.query("rollback to savepoint test_savepoint");
   });
 
