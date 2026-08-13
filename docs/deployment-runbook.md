@@ -82,30 +82,45 @@ The Milestone 6/8 Cron jobs (`process-assignment-notifications`,
 `process-crm-sync`, `process-outbound-webhooks`) are registered by
 `pg_cron` on the Supabase project itself, not by Vercel Cron. Each job
 calls the app's internal queue-processing route over HTTP via `pg_net`,
-using two Postgres custom config settings — `app.settings.app_url` and
-`app.settings.cron_secret` — read at call time
-(`supabase/migrations/20260810050000_milestone6_assignment_lifecycle.sql`,
-`supabase/migrations/20260813070000_milestone8_integrations.sql`). Setting
-`CRON_SECRET` in Vercel alone does nothing: the `where ... is not null`
-guard on each job means it silently no-ops until both settings exist on
-Supabase too.
+reading its target URL and auth secret from a single-row config table,
+`app_private.cron_http_config`
+(`supabase/migrations/20260813110000_cron_http_config_table.sql`).
+Setting `CRON_SECRET` in Vercel alone does nothing: the `where exists
+(...)` guard on each job means it silently no-ops until this table is
+populated on Supabase too.
 
-1. In the Supabase SQL Editor for the target project (dev/preview or
-   production — each has its own settings), run:
+(An earlier version of this step tried `alter database postgres set
+app.settings.app_url = ...` per the original Milestone 6/8 migration
+comments. That fails on a real hosted Supabase project with `permission
+denied to set parameter` — Supabase reserves `ALTER DATABASE`-level
+custom settings for its own management plane — and the dashboard's
+"Custom Postgres Config" UI these comments also pointed at no longer
+exists. `20260813110000_cron_http_config_table.sql` replaces both
+`app.settings.*` lookups with the table below specifically because a
+plain table `UPDATE` is not a restricted operation the way `ALTER
+DATABASE` is.)
+
+1. Confirm `supabase/migrations/20260813110000_cron_http_config_table.sql`
+   is applied to the target project (it's part of step 1's pending-migration
+   list like any other).
+2. In the Supabase SQL Editor for the target project (dev/preview or
+   production — each has its own row), run:
    ```sql
-   alter database postgres set app.settings.app_url = '<the app's base URL for this environment>';
-   alter database postgres set app.settings.cron_secret = '<the exact same value as this environment's CRON_SECRET in Vercel>';
+   update app_private.cron_http_config
+   set app_url = '<the app's base URL for this environment>',
+       cron_secret = '<the exact same value as this environment's CRON_SECRET in Vercel>'
+   where id;
    ```
-2. The two values must match per environment — production's
-   `app.settings.cron_secret` must equal production's Vercel `CRON_SECRET`,
-   and likewise for preview/dev. Do not reuse a preview secret in
-   production or vice versa.
-3. Confirm `pg_cron` and `pg_net` are enabled on the project (Database >
+3. The two values must match per environment — production's
+   `cron_secret` must equal production's Vercel `CRON_SECRET`, and
+   likewise for preview/dev. Do not reuse a preview secret in production
+   or vice versa.
+4. Confirm `pg_cron` and `pg_net` are enabled on the project (Database >
    Extensions). The scheduling migration only registers the HTTP-calling
    jobs when both are present — see `is_cron_available()` and the
    `pg_extension` check next to each `cron.schedule(...)` call.
-4. Verify: after both settings are applied, check
-   `cron.job_run_details` (or wait for the next minute-cadence run) for a
+5. Verify: after the row is updated, check `cron.job_run_details` (or
+   wait for the next minute-cadence run) for a
    `process-assignment-notifications` invocation returning HTTP 200/204
    rather than 401 (secret mismatch) or a connection failure (wrong
    `app_url`).

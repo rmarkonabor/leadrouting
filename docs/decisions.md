@@ -1426,3 +1426,49 @@ backup/restore capability.
 **Status**: adopted — risk accepted, not resolved. Should be revisited
 before any pilot scales beyond a small, trusted set of organizations, per
 `docs/backup-and-restore.md`.
+
+## ADR-060: Cron→app HTTP auth config moved from `app.settings.*` GUCs to an `app_private` table
+
+**Context**: Milestones 6 and 8 scheduled `pg_cron`/`pg_net` jobs that
+call the app's internal queue-processing routes, authenticating via an
+`x-cron-secret` header built from two Postgres custom config settings,
+`current_setting('app.settings.app_url', true)` and
+`current_setting('app.settings.cron_secret', true)`. Both migrations'
+comments said these had to be set via "Database Settings > Custom
+Postgres Config, or via `alter database ... set ...`". Neither path
+actually works on a real hosted Supabase project, discovered only while
+following the deployment runbook against production: `alter database
+postgres set app.settings.app_url = ...` fails with `permission denied
+to set parameter "app.settings.app_url"` (Supabase reserves
+`ALTER DATABASE`-level custom GUCs for its own management plane on
+shared infrastructure, even for the project owner), and the dashboard's
+"Database Settings" page has no "Custom Postgres Config" section on
+current Supabase dashboards — that UI does not exist. Consequence: since
+each job's `where current_setting(...) is not null` guard fails closed,
+`process-assignment-notifications`, `process-crm-sync`, and
+`process-outbound-webhooks` have been silently no-op'ing on every real
+Supabase project since Milestone 6 — no error surfaced anywhere, since a
+job that never fires produces no failure to observe.
+**Decision**: replace both `current_setting('app.settings.*', true)`
+lookups with a single-row table, `app_private.cron_http_config`
+(`app_url text`, `cron_secret text`), set via a plain `UPDATE` from the
+Supabase SQL Editor — an ordinary privileged operation the project owner
+already has, unlike `ALTER DATABASE`. The table lives in a new
+`app_private` schema rather than `public` specifically so Milestone 9's
+blanket `grant select, insert, update, delete on all tables in schema
+public to authenticated, service_role` (and its matching `alter default
+privileges`, `20260813090000_grant_table_privileges_to_data_api_roles.sql`)
+never reaches it — a secret used to authenticate Cron's own calls into
+the app must never become readable by every authenticated tenant user
+the way every other `public` table now is. `revoke all ... from public,
+anon, authenticated, service_role` on the table itself is added as
+defense in depth on top of the schema separation. See
+`supabase/migrations/20260813110000_cron_http_config_table.sql` and
+`docs/deployment-runbook.md` §3.
+**Consequence**: the three previously-silent cron jobs need this new
+migration applied and the config table populated on every existing
+environment (dev/preview/production) before they start actually running
+— this is not automatic for projects that already ran the Milestone
+6/8 migrations. `docs/deployment-runbook.md` §3 was rewritten to walk
+through this.
+**Status**: adopted.
