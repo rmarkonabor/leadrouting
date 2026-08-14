@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getVerifiedUser } from "@/lib/supabase/get-verified-user";
 import { listMyMemberships } from "@/modules/organizations/get-current-organization";
 import { CreateOrganizationForm } from "@/modules/organizations/create-organization-form";
@@ -35,8 +36,10 @@ export default async function HomePage() {
           <ul>
             {memberships.map((membership) => (
               <li key={membership.organizationId}>
-                {membership.organizationName} ({membership.organizationSlug}) —{" "}
-                {membership.role} — {membership.status}
+                <Link href={`/org/${membership.organizationSlug}/dashboard`}>
+                  {membership.organizationName} ({membership.organizationSlug})
+                </Link>{" "}
+                — {membership.role} — {membership.status}
               </li>
             ))}
           </ul>
