@@ -7,6 +7,8 @@ import {
   deleteWebhookEndpointAction,
   type RotateSecretFormState,
 } from "@/modules/webhooks/actions";
+import { Button } from "@/components/Button";
+import { Card } from "@/components/Card";
 
 export function EndpointActions({
   orgSlug,
@@ -31,23 +33,29 @@ export function EndpointActions({
   const deleteAction = deleteWebhookEndpointAction.bind(null, orgSlug, endpointId);
 
   return (
-    <div>
-      <form action={formAction} style={{ display: "inline" }}>
-        <button type="submit" disabled={pending}>
-          Rotate secret
-        </button>
-      </form>{" "}
-      <form action={toggleAction} style={{ display: "inline" }}>
-        <button type="submit">{status === "active" ? "Deactivate" : "Activate"}</button>
-      </form>{" "}
-      <form action={deleteAction} style={{ display: "inline" }}>
-        <button type="submit">Delete</button>
-      </form>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2">
+        <form action={formAction}>
+          <Button type="submit" variant="secondary" disabled={pending}>
+            Rotate secret
+          </Button>
+        </form>
+        <form action={toggleAction}>
+          <Button type="submit" variant="secondary">
+            {status === "active" ? "Deactivate" : "Activate"}
+          </Button>
+        </form>
+        <form action={deleteAction}>
+          <Button type="submit" variant="danger">
+            Delete
+          </Button>
+        </form>
+      </div>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
       {state.secret ? (
-        <p>
+        <Card className="text-sm">
           New signing secret (shown once — copy it now): <code>{state.secret}</code>
-        </p>
+        </Card>
       ) : null}
     </div>
   );

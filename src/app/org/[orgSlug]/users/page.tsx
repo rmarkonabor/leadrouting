@@ -2,6 +2,17 @@ import { listOrganizationUsers } from "@/modules/users/manage-user";
 import { InviteUserForm } from "./invite-user-form";
 import { toAppError } from "@/lib/errors/app-error";
 import { UserRowActions } from "./user-row-actions";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { Section } from "@/components/Card";
+import { StatusBadge } from "@/components/Badge";
+import {
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableHeaderCell,
+  TableCell,
+} from "@/components/Table";
 
 export default async function UsersPage({
   params,
@@ -17,47 +28,48 @@ export default async function UsersPage({
 
   if (loadError || !users) {
     return (
-      <main>
-        <h1>Users</h1>
-        <p>{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Users</PageTitle>
+        <p className="text-sm text-danger-text">{loadError}</p>
+      </PageContainer>
     );
   }
 
   return (
-    <main>
-      <h1>Users</h1>
-      <table>
-        <thead>
-          <tr>
-            <th>User ID</th>
-            <th>Role</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
+    <PageContainer>
+      <PageTitle>Users</PageTitle>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableHeaderCell>User ID</TableHeaderCell>
+            <TableHeaderCell>Role</TableHeaderCell>
+            <TableHeaderCell>Status</TableHeaderCell>
+            <TableHeaderCell />
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {users.map((u) => (
-            <tr key={u.id}>
-              <td>{u.user_id}</td>
-              <td>{u.role}</td>
-              <td>{u.status}</td>
-              <td>
+            <TableRow key={u.id}>
+              <TableCell>{u.user_id}</TableCell>
+              <TableCell>{u.role}</TableCell>
+              <TableCell>
+                <StatusBadge status={u.status} />
+              </TableCell>
+              <TableCell>
                 <UserRowActions
                   orgSlug={orgSlug}
                   organizationUserId={u.id}
                   status={u.status}
                 />
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
 
-      <section>
-        <h2>Invite a user</h2>
+      <Section title="Invite a user">
         <InviteUserForm orgSlug={orgSlug} />
-      </section>
-    </main>
+      </Section>
+    </PageContainer>
   );
 }

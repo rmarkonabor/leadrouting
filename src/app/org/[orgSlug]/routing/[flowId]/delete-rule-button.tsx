@@ -1,6 +1,7 @@
 "use client";
 
 import { deleteRoutingRuleAction } from "@/modules/routing/actions";
+import { Button } from "@/components/Button";
 
 export function DeleteRuleButton({
   orgSlug,
@@ -14,8 +15,10 @@ export function DeleteRuleButton({
   const boundAction = deleteRoutingRuleAction.bind(null, orgSlug, flowId, ruleId);
 
   return (
-    <form action={boundAction} style={{ display: "inline" }}>
-      <button type="submit">Delete</button>
+    <form action={boundAction}>
+      <Button type="submit" variant="danger" className="px-2 py-0.5 text-xs">
+        Delete
+      </Button>
     </form>
   );
 }

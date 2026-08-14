@@ -2,6 +2,9 @@ import Link from "next/link";
 import { listTerritories } from "@/modules/territories/territories";
 import { CreateTerritoryForm } from "./create-territory-form";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { Section, Card } from "@/components/Card";
+import { StatusBadge } from "@/components/Badge";
 
 export default async function TerritoriesPage({
   params,
@@ -17,32 +20,42 @@ export default async function TerritoriesPage({
 
   if (loadError || !territories) {
     return (
-      <main>
-        <h1>Territories</h1>
-        <p>{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Territories</PageTitle>
+        <p className="text-sm text-danger-text">{loadError}</p>
+      </PageContainer>
     );
   }
 
   return (
-    <main>
-      <h1>Territories</h1>
-      <p>
-        <Link href={`/org/${orgSlug}/territories/conflicts`}>View conflict warnings</Link>
-      </p>
-      <ul>
+    <PageContainer>
+      <div className="flex items-center justify-between">
+        <PageTitle>Territories</PageTitle>
+        <Link
+          href={`/org/${orgSlug}/territories/conflicts`}
+          className="text-sm text-brand-600 hover:underline"
+        >
+          View conflict warnings
+        </Link>
+      </div>
+      <div className="flex flex-col gap-2">
         {territories.map((territory) => (
-          <li key={territory.id}>
-            {territory.name} — {territory.territory_type} — priority {territory.priority}{" "}
-            — {territory.status}
-          </li>
+          <Card key={territory.id} className="flex items-center justify-between">
+            <span className="text-sm">
+              {territory.name} — {territory.territory_type} — priority{" "}
+              {territory.priority}
+            </span>
+            <StatusBadge status={territory.status} />
+          </Card>
         ))}
-      </ul>
+        {territories.length === 0 ? (
+          <p className="text-sm text-muted">No territories yet.</p>
+        ) : null}
+      </div>
 
-      <section>
-        <h2>Create a territory</h2>
+      <Section title="Create a territory">
         <CreateTerritoryForm orgSlug={orgSlug} />
-      </section>
-    </main>
+      </Section>
+    </PageContainer>
   );
 }

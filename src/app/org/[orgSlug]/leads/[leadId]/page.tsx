@@ -3,6 +3,12 @@ import { listLeadStatusDefinitions } from "@/modules/leads/lead-statuses";
 import { UpdateStatusForm } from "./update-status-form";
 import { AddNoteForm } from "./add-note-form";
 import { toAppError } from "@/lib/errors/app-error";
+import type { RoutingExplanationLike } from "@/modules/routing/format-explanation";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { Card, Section } from "@/components/Card";
+import { StatusBadge } from "@/components/Badge";
+import { CodeBlock } from "@/components/CodeBlock";
+import { RoutingResultView } from "@/components/RoutingResultView";
 
 export default async function LeadDetailPage({
   params,
@@ -21,10 +27,12 @@ export default async function LeadDetailPage({
 
   if (loadError || !data) {
     return (
-      <main>
-        <h1>Lead</h1>
-        <p role="alert">{loadError ?? "Something went wrong loading this lead."}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Lead</PageTitle>
+        <p role="alert" className="text-sm text-danger-text">
+          {loadError ?? "Something went wrong loading this lead."}
+        </p>
+      </PageContainer>
     );
   }
 
@@ -32,141 +40,162 @@ export default async function LeadDetailPage({
   const { lead } = detail;
 
   return (
-    <main>
-      <h1>
+    <PageContainer>
+      <PageTitle>
         {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "Unnamed lead"}
-      </h1>
+      </PageTitle>
 
-      <section>
-        <h2>Contact</h2>
-        <p>Email: {String(lead.email ?? "—")}</p>
-        <p>Phone: {String(lead.phone ?? "—")}</p>
-        <p>
-          Address:{" "}
-          {[
-            lead.street_address,
-            lead.unit_number,
-            lead.city,
-            lead.state_province,
-            lead.postal_code,
-          ]
-            .filter(Boolean)
-            .join(", ") || "—"}
-        </p>
-        <p>Message: {String(lead.message ?? "—")}</p>
-      </section>
+      <Section title="Contact">
+        <Card className="flex flex-col gap-1 text-sm">
+          <p>Email: {String(lead.email ?? "—")}</p>
+          <p>Phone: {String(lead.phone ?? "—")}</p>
+          <p>
+            Address:{" "}
+            {[
+              lead.street_address,
+              lead.unit_number,
+              lead.city,
+              lead.state_province,
+              lead.postal_code,
+            ]
+              .filter(Boolean)
+              .join(", ") || "—"}
+          </p>
+          <p>Message: {String(lead.message ?? "—")}</p>
+        </Card>
+      </Section>
 
-      <section>
-        <h2>Custom variables</h2>
+      <Section title="Custom variables">
         {detail.customValues.length === 0 ? (
-          <p>No custom variables.</p>
+          <p className="text-sm text-muted">No custom variables.</p>
         ) : (
-          <ul>
-            {detail.customValues.map((cv: Record<string, unknown>) => (
-              <li key={String(cv.id)}>
-                {String(
-                  (cv.custom_variable_definitions as Record<string, unknown> | null)
-                    ?.name ?? cv.variable_definition_id,
-                )}
-                : {JSON.stringify(cv.value)}
-              </li>
-            ))}
-          </ul>
+          <Card>
+            <ul className="flex flex-col gap-1 text-sm">
+              {detail.customValues.map((cv: Record<string, unknown>) => (
+                <li key={String(cv.id)}>
+                  <span className="font-medium">
+                    {String(
+                      (cv.custom_variable_definitions as Record<string, unknown> | null)
+                        ?.name ?? cv.variable_definition_id,
+                    )}
+                  </span>
+                  : {JSON.stringify(cv.value)}
+                </li>
+              ))}
+            </ul>
+          </Card>
         )}
-      </section>
+      </Section>
 
-      <section>
-        <h2>Status</h2>
-        <p>Current: {String(lead.lead_status ?? "—")}</p>
+      <Section title="Status">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted">Current:</span>
+          <StatusBadge status={lead.lead_status as string | null} />
+        </div>
         <UpdateStatusForm
           orgSlug={orgSlug}
           leadId={leadId}
           currentStatus={(lead.lead_status as string | null) ?? null}
           statusOptions={statuses}
         />
-        <h3>Status history</h3>
+        <p className="text-sm font-medium text-muted">Status history</p>
         {detail.statusHistory.length === 0 ? (
-          <p>No status changes yet.</p>
+          <p className="text-sm text-muted">No status changes yet.</p>
         ) : (
-          <ul>
+          <ul className="flex flex-col gap-1 text-sm">
             {detail.statusHistory.map((entry: Record<string, unknown>) => (
-              <li key={String(entry.id)}>
-                {String(entry.created_at)}: {String(entry.from_status ?? "—")} →{" "}
-                {String(entry.to_status)}
+              <li key={String(entry.id)} className="flex items-center gap-2">
+                <span className="text-muted">{String(entry.created_at)}</span>
+                <StatusBadge status={(entry.from_status as string | null) ?? null} />
+                <span>→</span>
+                <StatusBadge status={entry.to_status as string} />
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
-      <section>
-        <h2>Assignment</h2>
-        <p>Status: {String(lead.assignment_status ?? "—")}</p>
-        <p>Explanation: {String(detail.assignmentExplanation ?? "—")}</p>
-        <h3>Assignment history</h3>
-        {detail.assignments.length === 0 ? (
-          <p>No assignments yet.</p>
+      <Section title="Assignment">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted">Status:</span>
+          <StatusBadge status={lead.assignment_status as string | null} />
+        </div>
+        {detail.assignmentExplanation ? (
+          <Card>
+            <RoutingResultView
+              result={detail.assignmentExplanation as unknown as RoutingExplanationLike}
+            />
+          </Card>
         ) : (
-          <ul>
+          <p className="text-sm text-muted">No routing explanation recorded yet.</p>
+        )}
+        <p className="text-sm font-medium text-muted">Assignment history</p>
+        {detail.assignments.length === 0 ? (
+          <p className="text-sm text-muted">No assignments yet.</p>
+        ) : (
+          <ul className="flex flex-col gap-1 text-sm">
             {detail.assignments.map((assignment: Record<string, unknown>) => (
-              <li key={String(assignment.id)}>
-                {String(assignment.created_at)} — user {String(assignment.user_id)} —{" "}
-                {String(assignment.status)}
+              <li key={String(assignment.id)} className="flex items-center gap-2">
+                <span className="text-muted">{String(assignment.created_at)}</span>
+                <span>user {String(assignment.user_id)}</span>
+                <StatusBadge status={assignment.status as string} />
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
-      <section>
-        <h2>Notes</h2>
+      <Section title="Notes">
         <AddNoteForm orgSlug={orgSlug} leadId={leadId} />
         {detail.notes.length === 0 ? (
-          <p>No notes yet.</p>
+          <p className="text-sm text-muted">No notes yet.</p>
         ) : (
-          <ul>
+          <ul className="flex flex-col gap-2 text-sm">
             {detail.notes.map((note: Record<string, unknown>) => (
               <li key={String(note.id)}>
-                {String(note.created_at)}: {String(note.content)}
+                <span className="text-muted">{String(note.created_at)}:</span>{" "}
+                {String(note.content)}
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
-      <section>
-        <h2>Activity timeline</h2>
+      <Section title="Activity timeline">
         {detail.activities.length === 0 ? (
-          <p>No activity yet.</p>
+          <p className="text-sm text-muted">No activity yet.</p>
         ) : (
-          <ul>
+          <ul className="flex flex-col gap-1 text-sm">
             {detail.activities.map((activity: Record<string, unknown>) => (
-              <li key={String(activity.id)}>
-                {String(activity.created_at)}: {String(activity.activity_type)}
+              <li key={String(activity.id)} className="flex items-center gap-2">
+                <span className="text-muted">{String(activity.created_at)}</span>
+                <StatusBadge status={activity.activity_type as string} />
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
-      <section>
-        <h2>Integration status</h2>
-        <p>{detail.integrationStatus.note}</p>
-      </section>
+      <Section title="Integration status">
+        <p className="text-sm text-muted">{detail.integrationStatus.note}</p>
+      </Section>
 
       {detail.canViewOriginalPayload ? (
-        <section>
-          <h2>Original submission</h2>
+        <Section title="Original submission">
           {detail.originalPayload ? (
             <details>
-              <summary>Raw payload</summary>
-              <pre>{JSON.stringify(detail.originalPayload, null, 2)}</pre>
+              <summary className="cursor-pointer text-sm text-muted">Raw payload</summary>
+              <div className="mt-2">
+                <CodeBlock value={detail.originalPayload} />
+              </div>
             </details>
           ) : (
-            <p>No submission log recorded for this lead.</p>
+            <p className="text-sm text-muted">
+              No submission log recorded for this lead.
+            </p>
           )}
-        </section>
+        </Section>
       ) : null}
-    </main>
+    </PageContainer>
   );
 }

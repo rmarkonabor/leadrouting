@@ -4,6 +4,7 @@ import {
   retryIntegrationJobAction,
   markIntegrationLogResolvedAction,
 } from "@/modules/integration-logs/actions";
+import { Button } from "@/components/Button";
 
 export function LogActions({
   orgSlug,
@@ -18,15 +19,19 @@ export function LogActions({
   const resolveAction = markIntegrationLogResolvedAction.bind(null, orgSlug, logId);
 
   return (
-    <span>
+    <div className="flex gap-2">
       {retryAction ? (
-        <form action={retryAction} style={{ display: "inline" }}>
-          <button type="submit">Retry</button>
+        <form action={retryAction}>
+          <Button type="submit" variant="secondary" className="px-2 py-0.5 text-xs">
+            Retry
+          </Button>
         </form>
-      ) : null}{" "}
-      <form action={resolveAction} style={{ display: "inline" }}>
-        <button type="submit">Mark resolved</button>
+      ) : null}
+      <form action={resolveAction}>
+        <Button type="submit" variant="secondary" className="px-2 py-0.5 text-xs">
+          Mark resolved
+        </Button>
       </form>
-    </span>
+    </div>
   );
 }

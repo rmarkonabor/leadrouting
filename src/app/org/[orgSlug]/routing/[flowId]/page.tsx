@@ -5,6 +5,9 @@ import { CreateRoutingRuleForm } from "./create-rule-form";
 import { PublishFlowButton } from "./publish-flow-button";
 import { DeleteRuleButton } from "./delete-rule-button";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { Section, Card } from "@/components/Card";
+import { StatusBadge } from "@/components/Badge";
 
 export default async function RoutingFlowDetailPage({
   params,
@@ -24,49 +27,56 @@ export default async function RoutingFlowDetailPage({
 
   if (loadError || !data) {
     return (
-      <main>
-        <h1>Routing flow</h1>
-        <p>{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Routing flow</PageTitle>
+        <p className="text-sm text-danger-text">{loadError}</p>
+      </PageContainer>
     );
   }
 
   const { flow, rules, teams } = data;
 
   return (
-    <main>
-      <h1>{flow.name}</h1>
-      <p>
-        Status: {flow.status}
-        {flow.current_version_id ? " (has a published version)" : " (never published)"}
-      </p>
+    <PageContainer>
+      <PageTitle>{flow.name}</PageTitle>
+      <div className="flex items-center gap-2 text-sm">
+        <StatusBadge status={flow.status} />
+        <span className="text-muted">
+          {flow.current_version_id ? "has a published version" : "never published"}
+        </span>
+      </div>
 
-      <section>
-        <h2>Draft rules</h2>
-        <p>
+      <Section title="Draft rules">
+        <p className="text-sm text-muted">
           Rules run against the flow&apos;s <em>published</em> version once published —
           editing draft rules below never affects a lead already routed against an earlier
           version.
         </p>
-        <ul>
+        <div className="flex flex-col gap-2">
           {rules.map((rule) => (
-            <li key={rule.id}>
-              [{rule.priority}] {rule.name} — action:{" "}
-              {(rule.action as { type: string }).type}{" "}
+            <Card key={rule.id} className="flex items-center justify-between">
+              <span className="text-sm">
+                [{rule.priority}] {rule.name} — action:{" "}
+                {(rule.action as { type: string }).type}
+              </span>
               <DeleteRuleButton orgSlug={orgSlug} flowId={flowId} ruleId={rule.id} />
-            </li>
+            </Card>
           ))}
-        </ul>
+          {rules.length === 0 ? (
+            <p className="text-sm text-muted">No rules yet.</p>
+          ) : null}
+        </div>
 
-        <h3>Add a rule</h3>
+        <p className="mt-2 text-sm font-medium">Add a rule</p>
         <CreateRoutingRuleForm orgSlug={orgSlug} flowId={flowId} teams={teams} />
-      </section>
+      </Section>
 
-      <section>
-        <h2>Publish</h2>
-        <p>Publishing snapshots the rules above into a new, immutable version.</p>
+      <Section title="Publish">
+        <p className="text-sm text-muted">
+          Publishing snapshots the rules above into a new, immutable version.
+        </p>
         <PublishFlowButton orgSlug={orgSlug} flowId={flowId} />
-      </section>
-    </main>
+      </Section>
+    </PageContainer>
   );
 }

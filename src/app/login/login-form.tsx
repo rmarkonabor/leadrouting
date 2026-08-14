@@ -2,7 +2,11 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function LoginForm() {
   const router = useRouter();
@@ -32,10 +36,9 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div>
-        <label htmlFor="email">Email</label>
-        <input
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <Field label="Email" htmlFor="email">
+        <Input
           id="email"
           name="email"
           type="email"
@@ -44,10 +47,9 @@ export function LoginForm() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
-      </div>
-      <div>
-        <label htmlFor="password">Password</label>
-        <input
+      </Field>
+      <Field label="Password" htmlFor="password">
+        <Input
           id="password"
           name="password"
           type="password"
@@ -56,14 +58,14 @@ export function LoginForm() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
-      </div>
-      {errorMessage ? <p role="alert">{errorMessage}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
+      </Field>
+      {errorMessage ? <p className="text-sm text-danger-text">{errorMessage}</p> : null}
+      <Button type="submit" disabled={isSubmitting}>
         {isSubmitting ? "Signing in..." : "Sign in"}
-      </button>
-      <p>
-        <a href="/reset-password">Forgot your password?</a>
-      </p>
+      </Button>
+      <Link href="/reset-password" className="text-sm text-brand-600 hover:underline">
+        Forgot your password?
+      </Link>
     </form>
   );
 }

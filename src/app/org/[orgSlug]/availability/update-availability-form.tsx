@@ -5,6 +5,9 @@ import {
   updateAvailabilityFormAction,
   type UpdateAvailabilityFormState,
 } from "@/modules/availability/actions";
+import { Field } from "@/components/Field";
+import { Input, Select } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function UpdateAvailabilityForm({
   orgSlug,
@@ -20,25 +23,27 @@ export function UpdateAvailabilityForm({
   >(boundAction, {});
 
   return (
-    <form action={formAction}>
-      <label>
-        Status
-        <select name="availabilityStatus" defaultValue={currentStatus}>
+    <form action={formAction} className="flex max-w-sm flex-col gap-3">
+      <Field label="Status" htmlFor="availabilityStatus">
+        <Select
+          id="availabilityStatus"
+          name="availabilityStatus"
+          defaultValue={currentStatus}
+        >
           <option value="available">Available</option>
           <option value="busy">Busy</option>
           <option value="away">Away</option>
           <option value="vacation">Vacation</option>
           <option value="offline">Offline</option>
-        </select>
-      </label>
-      <label>
-        Note
-        <input type="text" name="statusNote" />
-      </label>
-      <button type="submit" disabled={pending}>
+        </Select>
+      </Field>
+      <Field label="Note" htmlFor="statusNote">
+        <Input id="statusNote" type="text" name="statusNote" />
+      </Field>
+      <Button type="submit" disabled={pending} className="self-start">
         Update
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+      </Button>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
     </form>
   );
 }

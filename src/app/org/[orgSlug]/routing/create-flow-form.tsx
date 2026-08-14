@@ -5,6 +5,9 @@ import {
   createRoutingFlowFormAction,
   type CreateRoutingFlowFormState,
 } from "@/modules/routing/actions";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function CreateRoutingFlowForm({ orgSlug }: { orgSlug: string }) {
   const boundAction = createRoutingFlowFormAction.bind(null, orgSlug);
@@ -14,19 +17,23 @@ export function CreateRoutingFlowForm({ orgSlug }: { orgSlug: string }) {
   >(boundAction, {});
 
   return (
-    <form action={formAction}>
-      <label>
-        Name
-        <input type="text" name="name" required />
-      </label>
-      <label>
-        Acceptance deadline (minutes)
-        <input type="number" name="acceptanceDeadlineMinutes" defaultValue={30} min={1} />
-      </label>
-      <button type="submit" disabled={pending}>
+    <form action={formAction} className="flex max-w-sm flex-col gap-3">
+      <Field label="Name" htmlFor="name">
+        <Input id="name" type="text" name="name" required />
+      </Field>
+      <Field label="Acceptance deadline (minutes)" htmlFor="acceptanceDeadlineMinutes">
+        <Input
+          id="acceptanceDeadlineMinutes"
+          type="number"
+          name="acceptanceDeadlineMinutes"
+          defaultValue={30}
+          min={1}
+        />
+      </Field>
+      <Button type="submit" disabled={pending} className="self-start">
         Create draft flow
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+      </Button>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
     </form>
   );
 }

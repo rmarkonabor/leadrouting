@@ -2,6 +2,9 @@ import { getLeadSource } from "@/modules/lead-sources/lead-sources";
 import { listFieldMappings } from "@/modules/field-mapping/field-mappings";
 import { FieldMappingForm } from "./field-mapping-form";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { Section, Card } from "@/components/Card";
+import { StatusBadge } from "@/components/Badge";
 
 export default async function LeadSourceDetailPage({
   params,
@@ -20,35 +23,38 @@ export default async function LeadSourceDetailPage({
 
   if (loadError || !result) {
     return (
-      <main>
-        <h1>Lead source</h1>
-        <p>{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Lead source</PageTitle>
+        <p className="text-sm text-danger-text">{loadError}</p>
+      </PageContainer>
     );
   }
 
   return (
-    <main>
-      <h1>{result.leadSource.name}</h1>
-      <p>
-        Type: {result.leadSource.source_type} — Status: {result.leadSource.status}
-      </p>
+    <PageContainer>
+      <PageTitle>{result.leadSource.name}</PageTitle>
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-muted">{result.leadSource.source_type}</span>
+        <StatusBadge status={result.leadSource.status} />
+      </div>
 
-      <h2>Field mappings</h2>
-      <ul>
-        {result.mappings.map((mapping) => (
-          <li key={mapping.id}>
-            {mapping.source_field_name} → {mapping.destination_type}
-            {mapping.destination_field ? ` (${mapping.destination_field})` : ""}
-            {mapping.transformation ? ` [${mapping.transformation}]` : ""}
-          </li>
-        ))}
-      </ul>
+      <Section title="Field mappings">
+        <div className="flex flex-col gap-2">
+          {result.mappings.map((mapping) => (
+            <Card key={mapping.id} className="text-sm">
+              {mapping.source_field_name} → {mapping.destination_type}
+              {mapping.destination_field ? ` (${mapping.destination_field})` : ""}
+              {mapping.transformation ? ` [${mapping.transformation}]` : ""}
+            </Card>
+          ))}
+          {result.mappings.length === 0 ? (
+            <p className="text-sm text-muted">No mappings yet.</p>
+          ) : null}
+        </div>
 
-      <section>
-        <h3>Add or update a mapping</h3>
+        <p className="text-sm font-medium">Add or update a mapping</p>
         <FieldMappingForm orgSlug={orgSlug} leadSourceId={leadSourceId} />
-      </section>
-    </main>
+      </Section>
+    </PageContainer>
   );
 }

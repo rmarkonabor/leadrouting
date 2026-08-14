@@ -2,6 +2,7 @@
 
 import { deactivateUserAction, activateUserAction } from "@/modules/users/actions";
 import type { OrganizationUserStatus } from "@/lib/supabase/database.types";
+import { Button } from "@/components/Button";
 
 export function UserRowActions({
   orgSlug,
@@ -15,7 +16,9 @@ export function UserRowActions({
   if (status === "active") {
     return (
       <form action={deactivateUserAction.bind(null, orgSlug, organizationUserId)}>
-        <button type="submit">Deactivate</button>
+        <Button type="submit" variant="danger">
+          Deactivate
+        </Button>
       </form>
     );
   }
@@ -23,7 +26,9 @@ export function UserRowActions({
   if (status === "inactive" || status === "suspended") {
     return (
       <form action={activateUserAction.bind(null, orgSlug, organizationUserId)}>
-        <button type="submit">Reactivate</button>
+        <Button type="submit" variant="secondary">
+          Reactivate
+        </Button>
       </form>
     );
   }

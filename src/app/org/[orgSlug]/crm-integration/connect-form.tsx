@@ -5,6 +5,9 @@ import {
   connectIntegrationFormAction,
   type ConnectIntegrationFormState,
 } from "@/modules/integrations/actions";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function ConnectForm({ orgSlug }: { orgSlug: string }) {
   const boundAction = connectIntegrationFormAction.bind(null, orgSlug);
@@ -14,28 +17,32 @@ export function ConnectForm({ orgSlug }: { orgSlug: string }) {
   >(boundAction, {});
 
   return (
-    <form action={formAction}>
-      <label>
-        Provider
-        <input type="text" name="provider" required placeholder="e.g. generic_http" />
-      </label>
-      <label>
-        CRM base URL
-        <input
+    <form action={formAction} className="flex max-w-sm flex-col gap-3">
+      <Field label="Provider" htmlFor="provider">
+        <Input
+          id="provider"
+          type="text"
+          name="provider"
+          required
+          placeholder="e.g. generic_http"
+        />
+      </Field>
+      <Field label="CRM base URL" htmlFor="baseUrl">
+        <Input
+          id="baseUrl"
           type="url"
           name="baseUrl"
           required
           placeholder="https://api.example-crm.com/v1"
         />
-      </label>
-      <label>
-        API key / access token
-        <input type="password" name="apiKey" required />
-      </label>
-      <button type="submit" disabled={pending}>
+      </Field>
+      <Field label="API key / access token" htmlFor="apiKey">
+        <Input id="apiKey" type="password" name="apiKey" required />
+      </Field>
+      <Button type="submit" disabled={pending} className="self-start">
         Connect
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+      </Button>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
     </form>
   );
 }

@@ -1,5 +1,14 @@
 import { listAuditLogs } from "@/modules/audit-logs/audit-logs";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import {
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableHeaderCell,
+  TableCell,
+} from "@/components/Table";
 
 export default async function AuditLogsPage({
   params,
@@ -15,47 +24,49 @@ export default async function AuditLogsPage({
 
   if (loadError || !result) {
     return (
-      <main>
-        <h1>Audit logs</h1>
-        <p role="alert">{loadError ?? "Something went wrong loading audit logs."}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Audit logs</PageTitle>
+        <p role="alert" className="text-sm text-danger-text">
+          {loadError ?? "Something went wrong loading audit logs."}
+        </p>
+      </PageContainer>
     );
   }
 
   return (
-    <main>
-      <h1>Audit logs</h1>
+    <PageContainer>
+      <PageTitle>Audit logs</PageTitle>
       {result.logs.length === 0 ? (
-        <p>No audit log entries.</p>
+        <p className="text-sm text-muted">No audit log entries.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Actor</th>
-              <th>Action</th>
-              <th>Entity</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>When</TableHeaderCell>
+              <TableHeaderCell>Actor</TableHeaderCell>
+              <TableHeaderCell>Action</TableHeaderCell>
+              <TableHeaderCell>Entity</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {result.logs.map((log) => (
-              <tr key={String(log.id)}>
-                <td>{String(log.created_at)}</td>
-                <td>{String(log.actor_user_id ?? "—")}</td>
-                <td>{String(log.action)}</td>
-                <td>
+              <TableRow key={String(log.id)}>
+                <TableCell>{String(log.created_at)}</TableCell>
+                <TableCell>{String(log.actor_user_id ?? "—")}</TableCell>
+                <TableCell>{String(log.action)}</TableCell>
+                <TableCell>
                   {String(log.entity_type)}
                   {log.entity_id ? ` (${String(log.entity_id)})` : ""}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
-      <p>
+      <p className="text-sm text-muted">
         Page {result.page} of {Math.max(1, Math.ceil(result.total / result.pageSize))} (
         {result.total} total)
       </p>
-    </main>
+    </PageContainer>
   );
 }

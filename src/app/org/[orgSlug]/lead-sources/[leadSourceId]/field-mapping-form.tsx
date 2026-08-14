@@ -5,6 +5,9 @@ import {
   upsertFieldMappingFormAction,
   type UpsertFieldMappingFormState,
 } from "@/modules/field-mapping/actions";
+import { Field } from "@/components/Field";
+import { Input, Select } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function FieldMappingForm({
   orgSlug,
@@ -20,30 +23,25 @@ export function FieldMappingForm({
   >(boundAction, {});
 
   return (
-    <form action={formAction}>
-      <label>
-        Source field name
-        <input type="text" name="sourceFieldName" required />
-      </label>
-      <label>
-        Destination type
-        <select name="destinationType" defaultValue="default_field">
+    <form action={formAction} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <Field label="Source field name" htmlFor="sourceFieldName">
+        <Input id="sourceFieldName" type="text" name="sourceFieldName" required />
+      </Field>
+      <Field label="Destination type" htmlFor="destinationType">
+        <Select id="destinationType" name="destinationType" defaultValue="default_field">
           <option value="default_field">Default lead field</option>
           <option value="custom_variable">Custom variable</option>
           <option value="ignored">Ignored</option>
-        </select>
-      </label>
-      <label>
-        Destination field
-        <input type="text" name="destinationField" />
-      </label>
-      <label>
-        Data type
-        <input type="text" name="dataType" defaultValue="text" required />
-      </label>
-      <label>
-        Transformation
-        <select name="transformation" defaultValue="">
+        </Select>
+      </Field>
+      <Field label="Destination field" htmlFor="destinationField">
+        <Input id="destinationField" type="text" name="destinationField" />
+      </Field>
+      <Field label="Data type" htmlFor="dataType">
+        <Input id="dataType" type="text" name="dataType" defaultValue="text" required />
+      </Field>
+      <Field label="Transformation" htmlFor="transformation">
+        <Select id="transformation" name="transformation" defaultValue="">
           <option value="">None</option>
           <option value="trim">Trim whitespace</option>
           <option value="lowercase">Lowercase</option>
@@ -57,12 +55,16 @@ export function FieldMappingForm({
           <option value="join_values">Join values</option>
           <option value="replace_values">Replace values</option>
           <option value="apply_default">Apply default value</option>
-        </select>
-      </label>
-      <button type="submit" disabled={pending}>
-        Save mapping
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+        </Select>
+      </Field>
+      <div className="sm:col-span-2">
+        <Button type="submit" disabled={pending}>
+          Save mapping
+        </Button>
+      </div>
+      {state.error ? (
+        <p className="text-sm text-danger-text sm:col-span-2">{state.error}</p>
+      ) : null}
     </form>
   );
 }
