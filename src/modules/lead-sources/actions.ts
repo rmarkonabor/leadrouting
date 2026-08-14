@@ -16,7 +16,7 @@ export async function createLeadSourceFormAction(
   formData: FormData,
 ): Promise<CreateLeadSourceFormState> {
   const name = String(formData.get("name") ?? "");
-  const sourceType = String(formData.get("sourceType") ?? "api") as LeadSourceType;
+  const sourceType = String(formData.get("sourceType") ?? "webhook") as LeadSourceType;
 
   try {
     const { plaintextToken } = await createLeadSource(organizationSlug, {

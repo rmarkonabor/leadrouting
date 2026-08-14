@@ -1,6 +1,8 @@
 import { getOwnAvailability } from "@/modules/availability/availability";
 import { UpdateAvailabilityForm } from "./update-availability-form";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { StatusBadge } from "@/components/Badge";
 
 export default async function AvailabilityPage({
   params,
@@ -16,20 +18,23 @@ export default async function AvailabilityPage({
 
   if (loadError || !result) {
     return (
-      <main>
-        <h1>Availability</h1>
-        <p>{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Availability</PageTitle>
+        <p className="text-sm text-danger-text">{loadError}</p>
+      </PageContainer>
     );
   }
 
   const currentStatus = result.availability?.availability_status ?? "available";
 
   return (
-    <main>
-      <h1>Availability</h1>
-      <p>Current status: {result.availability?.availability_status ?? "not set"}</p>
+    <PageContainer>
+      <PageTitle>Availability</PageTitle>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted">Current status:</span>
+        <StatusBadge status={result.availability?.availability_status ?? null} />
+      </div>
       <UpdateAvailabilityForm orgSlug={orgSlug} currentStatus={currentStatus} />
-    </main>
+    </PageContainer>
   );
 }

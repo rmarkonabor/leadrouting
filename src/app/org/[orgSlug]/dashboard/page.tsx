@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getDashboardSummary } from "@/modules/dashboard/dashboard";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { StatTile } from "@/components/Card";
 
 export default async function DashboardPage({
   params,
@@ -16,38 +18,44 @@ export default async function DashboardPage({
 
   if (loadError || !summary) {
     return (
-      <main>
-        <h1>Dashboard</h1>
-        <p>{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Dashboard</PageTitle>
+        <p className="text-sm text-danger-text">{loadError}</p>
+      </PageContainer>
     );
   }
 
   return (
-    <main>
-      <h1>Dashboard</h1>
-      <ul>
-        <li>
-          <Link href={`/org/${orgSlug}/leads`}>Leads</Link> — {summary.leadsTotal} total,{" "}
-          {summary.leadsAwaitingAcceptance} awaiting acceptance
-        </li>
+    <PageContainer>
+      <PageTitle>Dashboard</PageTitle>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <Link href={`/org/${orgSlug}/leads`}>
+          <StatTile label="Leads" value={summary.leadsTotal} />
+        </Link>
+        <Link href={`/org/${orgSlug}/leads?assignmentStatus=pending`}>
+          <StatTile label="Awaiting acceptance" value={summary.leadsAwaitingAcceptance} />
+        </Link>
         {summary.manualReviewOpenCount !== null ? (
-          <li>
-            <Link href={`/org/${orgSlug}/manual-review`}>Manual review</Link> —{" "}
-            {summary.manualReviewOpenCount} open
-          </li>
+          <Link href={`/org/${orgSlug}/manual-review`}>
+            <StatTile
+              label="Manual review (open)"
+              value={summary.manualReviewOpenCount}
+            />
+          </Link>
         ) : null}
-        <li>
-          <Link href={`/org/${orgSlug}/notifications`}>Notifications</Link> —{" "}
-          {summary.unreadNotificationsCount} unread
-        </li>
-        <li>
-          <Link href={`/org/${orgSlug}/routing-health`}>Routing health</Link>
-        </li>
-        <li>
-          <Link href={`/org/${orgSlug}/routing/simulator`}>Routing simulator</Link>
-        </li>
-      </ul>
-    </main>
+        <Link href={`/org/${orgSlug}/notifications`}>
+          <StatTile
+            label="Unread notifications"
+            value={summary.unreadNotificationsCount}
+          />
+        </Link>
+        <Link href={`/org/${orgSlug}/routing-health`}>
+          <StatTile label="Routing health" value="View" />
+        </Link>
+        <Link href={`/org/${orgSlug}/routing/simulator`}>
+          <StatTile label="Routing simulator" value="Open" />
+        </Link>
+      </div>
+    </PageContainer>
   );
 }

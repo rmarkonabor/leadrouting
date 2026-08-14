@@ -5,6 +5,9 @@ import {
   upsertFieldMappingFormAction,
   type UpsertFieldMappingFormState,
 } from "@/modules/integrations/actions";
+import { Field } from "@/components/Field";
+import { Input, Select } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function FieldMappingForm({
   orgSlug,
@@ -20,23 +23,21 @@ export function FieldMappingForm({
   >(boundAction, {});
 
   return (
-    <form action={formAction}>
-      <label>
-        Source field
-        <input
+    <form action={formAction} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <Field label="Source field" htmlFor="sourceField">
+        <Input
+          id="sourceField"
           type="text"
           name="sourceField"
           required
           placeholder="email or custom:budget_range"
         />
-      </label>
-      <label>
-        CRM field
-        <input type="text" name="crmField" required />
-      </label>
-      <label>
-        Transformation (optional)
-        <select name="transformation" defaultValue="">
+      </Field>
+      <Field label="CRM field" htmlFor="crmField">
+        <Input id="crmField" type="text" name="crmField" required />
+      </Field>
+      <Field label="Transformation (optional)" htmlFor="transformation">
+        <Select id="transformation" name="transformation" defaultValue="">
           <option value="">None</option>
           <option value="trim">Trim</option>
           <option value="lowercase">Lowercase</option>
@@ -50,12 +51,16 @@ export function FieldMappingForm({
           <option value="join_values">Join values</option>
           <option value="replace_values">Replace values</option>
           <option value="apply_default">Apply default</option>
-        </select>
-      </label>
-      <button type="submit" disabled={pending}>
-        Save mapping
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+        </Select>
+      </Field>
+      <div className="sm:col-span-2">
+        <Button type="submit" disabled={pending}>
+          Save mapping
+        </Button>
+      </div>
+      {state.error ? (
+        <p className="text-sm text-danger-text sm:col-span-2">{state.error}</p>
+      ) : null}
     </form>
   );
 }

@@ -1,0 +1,30 @@
+# Rafter suppressions. Each entry requires a reason — see CLAUDE.md rule
+# discipline: never suppress a finding without tracing input -> sink first.
+
+ignore:
+  - rule: R-D6F0B
+    path: supabase/config.toml
+    lines: [293, 325]
+    reason: >
+      False positive. These are supabase init's own boilerplate comment
+      lines ("DO NOT commit your ... to git") warning about the exact
+      pattern already used one line below (auth_token/secret set via
+      Supabase's env(VAR_NAME) substitution, never a literal). No secret
+      value is present; both providers are enabled = false. Verified via
+      full git history that no literal credential was ever committed to
+      this file. The rule appears to pattern-match on the warning phrase
+      itself rather than on committed secret material.
+
+  - rule: R-EFEEF
+    path: src/modules/organizations/create-organization.ts
+    lines: [15]
+    reason: >
+      False positive. /^[a-z0-9]+(-[a-z0-9]+)*$/ has the nested-quantifier
+      shape naive ReDoS detectors flag, but the literal "-" inside the
+      group (not in the [a-z0-9] class) uniquely fixes each segment
+      boundary, eliminating the ambiguity that causes catastrophic
+      backtracking. Verified empirically: adversarial inputs up to
+      400k chars (including a 30k-repetition "a-" pathological string)
+      all matched/failed in under 8ms, linear with input length. Input
+      is also bounded to 200 chars by the surrounding zod schema before
+      the regex ever runs.

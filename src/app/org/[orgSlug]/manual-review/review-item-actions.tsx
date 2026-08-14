@@ -4,6 +4,7 @@ import {
   resolveManualReviewItemAction,
   dismissManualReviewItemAction,
 } from "@/modules/manual-review/actions";
+import { Button } from "@/components/Button";
 
 export function ReviewItemActions({
   orgSlug,
@@ -16,13 +17,17 @@ export function ReviewItemActions({
   const dismissAction = dismissManualReviewItemAction.bind(null, orgSlug, itemId);
 
   return (
-    <>
-      <form action={resolveAction} style={{ display: "inline" }}>
-        <button type="submit">Resolve</button>
-      </form>{" "}
-      <form action={dismissAction} style={{ display: "inline" }}>
-        <button type="submit">Dismiss</button>
+    <div className="flex gap-2">
+      <form action={resolveAction}>
+        <Button type="submit" variant="secondary">
+          Resolve
+        </Button>
       </form>
-    </>
+      <form action={dismissAction}>
+        <Button type="submit" variant="danger">
+          Dismiss
+        </Button>
+      </form>
+    </div>
   );
 }

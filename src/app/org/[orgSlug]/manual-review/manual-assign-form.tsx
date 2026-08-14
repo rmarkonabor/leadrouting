@@ -5,6 +5,9 @@ import {
   manuallyAssignFromReviewFormAction,
   type ManuallyAssignFormState,
 } from "@/modules/manual-review/actions";
+import { Field } from "@/components/Field";
+import { Input, Select } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function ManualAssignForm({
   orgSlug,
@@ -22,26 +25,30 @@ export function ManualAssignForm({
   );
 
   return (
-    <form action={formAction}>
-      <label>
-        User ID to assign
-        <input type="text" name="userId" required placeholder="user UUID" />
-      </label>
-      <label>
-        Team (optional)
-        <select name="teamId" defaultValue="">
+    <form action={formAction} className="flex flex-wrap items-end gap-2">
+      <Field label="User ID to assign" htmlFor={`userId-${leadId}`}>
+        <Input
+          id={`userId-${leadId}`}
+          type="text"
+          name="userId"
+          required
+          placeholder="user UUID"
+        />
+      </Field>
+      <Field label="Team (optional)" htmlFor={`teamId-${leadId}`}>
+        <Select id={`teamId-${leadId}`} name="teamId" defaultValue="">
           <option value="">(none)</option>
           {teams.map((team) => (
             <option key={team.id} value={team.id}>
               {team.name}
             </option>
           ))}
-        </select>
-      </label>
-      <button type="submit" disabled={pending}>
+        </Select>
+      </Field>
+      <Button type="submit" disabled={pending}>
         Manually assign
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+      </Button>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
     </form>
   );
 }

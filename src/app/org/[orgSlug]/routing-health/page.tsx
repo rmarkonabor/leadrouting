@@ -1,5 +1,7 @@
 import { getRoutingHealth } from "@/modules/routing-health/routing-health";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { StatTile } from "@/components/Card";
 
 const METRIC_LABELS: Record<string, string> = {
   leadsReceived: "Leads received",
@@ -42,27 +44,30 @@ export default async function RoutingHealthPage({
 
   if (loadError || !metrics) {
     return (
-      <main>
-        <h1>Routing health</h1>
-        <p role="alert">{loadError ?? "Something went wrong loading routing health."}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Routing health</PageTitle>
+        <p role="alert" className="text-sm text-danger-text">
+          {loadError ?? "Something went wrong loading routing health."}
+        </p>
+      </PageContainer>
     );
   }
 
   return (
-    <main>
-      <h1>Routing health</h1>
-      <p>
+    <PageContainer>
+      <PageTitle>Routing health</PageTitle>
+      <p className="text-sm text-muted">
         Last 24 hours ({bucketStart.toISOString()} – {bucketEnd.toISOString()})
       </p>
-      <dl>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {Object.entries(METRIC_LABELS).map(([key, label]) => (
-          <div key={key}>
-            <dt>{label}</dt>
-            <dd>{String(metrics[key as keyof typeof metrics] ?? "—")}</dd>
-          </div>
+          <StatTile
+            key={key}
+            label={label}
+            value={String(metrics[key as keyof typeof metrics] ?? "—")}
+          />
         ))}
-      </dl>
-    </main>
+      </div>
+    </PageContainer>
   );
 }

@@ -6,6 +6,7 @@ import {
   testConnectionFormAction,
   type TestConnectionFormState,
 } from "@/modules/integrations/actions";
+import { Button } from "@/components/Button";
 
 export function ConnectionActions({
   orgSlug,
@@ -22,17 +23,21 @@ export function ConnectionActions({
   const disconnectAction = disconnectIntegrationAction.bind(null, orgSlug, connectionId);
 
   return (
-    <div>
-      <form action={formAction} style={{ display: "inline" }}>
-        <button type="submit" disabled={pending}>
-          Test connection
-        </button>
-      </form>{" "}
-      <form action={disconnectAction} style={{ display: "inline" }}>
-        <button type="submit">Disconnect</button>
-      </form>
-      {state.result ? <p>{state.result}</p> : null}
-      {state.error ? <p role="alert">{state.error}</p> : null}
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        <form action={formAction}>
+          <Button type="submit" variant="secondary" disabled={pending}>
+            Test connection
+          </Button>
+        </form>
+        <form action={disconnectAction}>
+          <Button type="submit" variant="danger">
+            Disconnect
+          </Button>
+        </form>
+      </div>
+      {state.result ? <p className="text-sm">{state.result}</p> : null}
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
     </div>
   );
 }

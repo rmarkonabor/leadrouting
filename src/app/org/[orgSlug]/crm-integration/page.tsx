@@ -4,6 +4,9 @@ import { ConnectForm } from "./connect-form";
 import { ConnectionActions } from "./connection-actions";
 import { FieldMappingForm } from "./field-mapping-form";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { Section, Card } from "@/components/Card";
+import { StatusBadge } from "@/components/Badge";
 
 export default async function CrmIntegrationPage({
   params,
@@ -19,10 +22,12 @@ export default async function CrmIntegrationPage({
 
   if (loadError || !connections) {
     return (
-      <main>
-        <h1>CRM integration</h1>
-        <p role="alert">{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>CRM integration</PageTitle>
+        <p role="alert" className="text-sm text-danger-text">
+          {loadError}
+        </p>
+      </PageContainer>
     );
   }
 
@@ -31,9 +36,9 @@ export default async function CrmIntegrationPage({
   );
 
   return (
-    <main>
-      <h1>CRM integration</h1>
-      <p>
+    <PageContainer>
+      <PageTitle>CRM integration</PageTitle>
+      <p className="text-sm text-muted">
         Synchronizes routed leads to one connected CRM: creates/updates the contact,
         assigns ownership, sends source information and mapped custom variables, adds the
         routing explanation as a note, and pushes the accepted assignment status. Does not
@@ -41,22 +46,25 @@ export default async function CrmIntegrationPage({
       </p>
 
       {connections.length === 0 ? (
-        <p>No CRM connected yet.</p>
+        <p className="text-sm text-muted">No CRM connected yet.</p>
       ) : (
-        <ul>
+        <div className="flex flex-col gap-4">
           {connections.map((connection, index) => (
-            <li key={connection.id}>
-              <p>
-                {connection.provider} — {connection.status}
-                {connection.connected_at ? ` (connected ${connection.connected_at})` : ""}
-              </p>
+            <Card key={connection.id} className="flex flex-col gap-3">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-medium">{connection.provider}</span>
+                <StatusBadge status={connection.status} />
+                {connection.connected_at ? (
+                  <span className="text-muted">connected {connection.connected_at}</span>
+                ) : null}
+              </div>
               <ConnectionActions orgSlug={orgSlug} connectionId={connection.id} />
 
-              <h3>Field mappings</h3>
+              <p className="text-sm font-medium">Field mappings</p>
               {fieldMappingsByConnection[index]!.length === 0 ? (
-                <p>No field mappings configured.</p>
+                <p className="text-sm text-muted">No field mappings configured.</p>
               ) : (
-                <ul>
+                <ul className="flex flex-col gap-1 text-sm">
                   {fieldMappingsByConnection[index]!.map((mapping) => (
                     <li key={mapping.id}>
                       {mapping.source_field} → {mapping.crm_field}
@@ -66,15 +74,14 @@ export default async function CrmIntegrationPage({
                 </ul>
               )}
               <FieldMappingForm orgSlug={orgSlug} connectionId={connection.id} />
-            </li>
+            </Card>
           ))}
-        </ul>
+        </div>
       )}
 
-      <section>
-        <h2>Connect a CRM</h2>
+      <Section title="Connect a CRM">
         <ConnectForm orgSlug={orgSlug} />
-      </section>
-    </main>
+      </Section>
+    </PageContainer>
   );
 }

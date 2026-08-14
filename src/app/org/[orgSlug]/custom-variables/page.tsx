@@ -1,6 +1,9 @@
 import { listCustomVariableDefinitions } from "@/modules/custom-variables/custom-variables";
 import { CreateCustomVariableForm } from "./create-custom-variable-form";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { Section, Card } from "@/components/Card";
+import { Badge } from "@/components/Badge";
 
 export default async function CustomVariablesPage({
   params,
@@ -16,28 +19,33 @@ export default async function CustomVariablesPage({
 
   if (loadError || !definitions) {
     return (
-      <main>
-        <h1>Custom lead variables</h1>
-        <p>{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Custom lead variables</PageTitle>
+        <p className="text-sm text-danger-text">{loadError}</p>
+      </PageContainer>
     );
   }
 
   return (
-    <main>
-      <h1>Custom lead variables</h1>
-      <ul>
+    <PageContainer>
+      <PageTitle>Custom lead variables</PageTitle>
+      <div className="flex flex-col gap-2">
         {definitions.map((definition) => (
-          <li key={definition.id}>
-            {definition.name} ({definition.internal_key}) — {definition.field_type}
-          </li>
+          <Card key={definition.id} className="flex items-center justify-between">
+            <span className="text-sm">
+              {definition.name} ({definition.internal_key})
+            </span>
+            <Badge variant="info">{definition.field_type}</Badge>
+          </Card>
         ))}
-      </ul>
+        {definitions.length === 0 ? (
+          <p className="text-sm text-muted">No custom variables yet.</p>
+        ) : null}
+      </div>
 
-      <section>
-        <h2>Create a custom variable</h2>
+      <Section title="Create a custom variable">
         <CreateCustomVariableForm orgSlug={orgSlug} />
-      </section>
-    </main>
+      </Section>
+    </PageContainer>
   );
 }

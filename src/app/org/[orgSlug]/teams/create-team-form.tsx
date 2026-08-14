@@ -2,6 +2,9 @@
 
 import { useActionState } from "react";
 import { createTeamFormAction, type CreateTeamFormState } from "@/modules/teams/actions";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function CreateTeamForm({ orgSlug }: { orgSlug: string }) {
   const boundAction = createTeamFormAction.bind(null, orgSlug);
@@ -11,19 +14,17 @@ export function CreateTeamForm({ orgSlug }: { orgSlug: string }) {
   );
 
   return (
-    <form action={formAction}>
-      <label>
-        Name
-        <input type="text" name="name" required />
-      </label>
-      <label>
-        Description
-        <input type="text" name="description" />
-      </label>
-      <button type="submit" disabled={pending}>
+    <form action={formAction} className="flex max-w-sm flex-col gap-3">
+      <Field label="Name" htmlFor="name">
+        <Input id="name" type="text" name="name" required />
+      </Field>
+      <Field label="Description" htmlFor="description">
+        <Input id="description" type="text" name="description" />
+      </Field>
+      <Button type="submit" disabled={pending} className="self-start">
         Create team
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+      </Button>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
     </form>
   );
 }

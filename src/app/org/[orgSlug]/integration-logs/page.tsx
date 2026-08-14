@@ -4,6 +4,17 @@ import {
 } from "@/modules/integration-logs/integration-logs";
 import { LogActions } from "./log-actions";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { Section } from "@/components/Card";
+import { StatusBadge } from "@/components/Badge";
+import {
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableHeaderCell,
+  TableCell,
+} from "@/components/Table";
 
 export default async function IntegrationLogsPage({
   params,
@@ -22,42 +33,45 @@ export default async function IntegrationLogsPage({
 
   if (loadError || !data) {
     return (
-      <main>
-        <h1>Integration logs</h1>
-        <p role="alert">{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Integration logs</PageTitle>
+        <p role="alert" className="text-sm text-danger-text">
+          {loadError}
+        </p>
+      </PageContainer>
     );
   }
 
   return (
-    <main>
-      <h1>Integration logs</h1>
+    <PageContainer>
+      <PageTitle>Integration logs</PageTitle>
 
-      <section>
-        <h2>CRM sync ({data.logs.total})</h2>
+      <Section title={`CRM sync (${data.logs.total})`}>
         {data.logs.logs.length === 0 ? (
-          <p>No CRM sync activity yet.</p>
+          <p className="text-sm text-muted">No CRM sync activity yet.</p>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Provider</th>
-                <th>Event</th>
-                <th>Status</th>
-                <th>Attempts</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>When</TableHeaderCell>
+                <TableHeaderCell>Provider</TableHeaderCell>
+                <TableHeaderCell>Event</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell>Attempts</TableHeaderCell>
+                <TableHeaderCell>Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {data.logs.logs.map((log) => (
-                <tr key={log.id}>
-                  <td>{log.created_at}</td>
-                  <td>{log.provider}</td>
-                  <td>{log.event_type}</td>
-                  <td>{log.status}</td>
-                  <td>{log.attempt_count}</td>
-                  <td>
+                <TableRow key={log.id}>
+                  <TableCell>{log.created_at}</TableCell>
+                  <TableCell>{log.provider}</TableCell>
+                  <TableCell>{log.event_type}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={log.status} />
+                  </TableCell>
+                  <TableCell>{log.attempt_count}</TableCell>
+                  <TableCell>
                     {log.status === "failed" || log.status === "dead_letter" ? (
                       <LogActions
                         orgSlug={orgSlug}
@@ -65,43 +79,44 @@ export default async function IntegrationLogsPage({
                         logId={log.id}
                       />
                     ) : null}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
-      </section>
+      </Section>
 
-      <section>
-        <h2>Webhook deliveries ({data.deliveries.total})</h2>
+      <Section title={`Webhook deliveries (${data.deliveries.total})`}>
         {data.deliveries.deliveries.length === 0 ? (
-          <p>No webhook delivery activity yet.</p>
+          <p className="text-sm text-muted">No webhook delivery activity yet.</p>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Event</th>
-                <th>Status</th>
-                <th>Response</th>
-                <th>Attempts</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>When</TableHeaderCell>
+                <TableHeaderCell>Event</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell>Response</TableHeaderCell>
+                <TableHeaderCell>Attempts</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {data.deliveries.deliveries.map((delivery) => (
-                <tr key={delivery.id}>
-                  <td>{delivery.created_at}</td>
-                  <td>{delivery.event_type}</td>
-                  <td>{delivery.status}</td>
-                  <td>{delivery.last_response_status ?? "—"}</td>
-                  <td>{delivery.attempt_count}</td>
-                </tr>
+                <TableRow key={delivery.id}>
+                  <TableCell>{delivery.created_at}</TableCell>
+                  <TableCell>{delivery.event_type}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={delivery.status} />
+                  </TableCell>
+                  <TableCell>{delivery.last_response_status ?? "—"}</TableCell>
+                  <TableCell>{delivery.attempt_count}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
-      </section>
-    </main>
+      </Section>
+    </PageContainer>
   );
 }

@@ -5,6 +5,11 @@ import {
   createLeadSourceFormAction,
   type CreateLeadSourceFormState,
 } from "@/modules/lead-sources/actions";
+import { Field } from "@/components/Field";
+import { Select } from "@/components/Input";
+import { Input } from "@/components/Input";
+import { Button } from "@/components/Button";
+import { IntakeUrlReveal } from "@/components/IntakeUrl";
 
 export function CreateLeadSourceForm({ orgSlug }: { orgSlug: string }) {
   const boundAction = createLeadSourceFormAction.bind(null, orgSlug);
@@ -14,31 +19,25 @@ export function CreateLeadSourceForm({ orgSlug }: { orgSlug: string }) {
   >(boundAction, {});
 
   return (
-    <form action={formAction}>
-      <label>
-        Name
-        <input type="text" name="name" required />
-      </label>
-      <label>
-        Source type
-        <select name="sourceType" defaultValue="api">
-          <option value="api">API</option>
-          <option value="webhook">Webhook</option>
-          <option value="external_form">External form</option>
-          <option value="manual">Manual</option>
-          <option value="csv">CSV</option>
-          <option value="crm">CRM</option>
-        </select>
-      </label>
-      <button type="submit" disabled={pending}>
-        Create lead source
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+    <div className="flex flex-col gap-3">
+      <form action={formAction} className="flex max-w-sm flex-col gap-3">
+        <Field label="Name" htmlFor="name">
+          <Input id="name" type="text" name="name" required />
+        </Field>
+        <Field label="Source type" htmlFor="sourceType">
+          <Select id="sourceType" name="sourceType" defaultValue="webhook">
+            <option value="webhook">Webhook</option>
+            <option value="external_form">External form embed</option>
+          </Select>
+        </Field>
+        <Button type="submit" disabled={pending} className="self-start">
+          Create lead source
+        </Button>
+      </form>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
       {state.plaintextToken ? (
-        <p>
-          Source token (shown once — copy it now): <code>{state.plaintextToken}</code>
-        </p>
+        <IntakeUrlReveal plaintextToken={state.plaintextToken} />
       ) : null}
-    </form>
+    </div>
   );
 }

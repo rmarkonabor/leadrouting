@@ -3,6 +3,9 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function ConfirmPasswordForm() {
   const router = useRouter();
@@ -30,10 +33,9 @@ export function ConfirmPasswordForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div>
-        <label htmlFor="password">New password</label>
-        <input
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <Field label="New password" htmlFor="password">
+        <Input
           id="password"
           name="password"
           type="password"
@@ -43,11 +45,11 @@ export function ConfirmPasswordForm() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
-      </div>
-      {errorMessage ? <p role="alert">{errorMessage}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
+      </Field>
+      {errorMessage ? <p className="text-sm text-danger-text">{errorMessage}</p> : null}
+      <Button type="submit" disabled={isSubmitting}>
         {isSubmitting ? "Updating..." : "Update password"}
-      </button>
+      </Button>
     </form>
   );
 }

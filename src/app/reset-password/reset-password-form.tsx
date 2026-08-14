@@ -3,6 +3,9 @@
 import { useState, type FormEvent } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { publicEnv } from "@/lib/env/public";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function ResetPasswordForm() {
   const [email, setEmail] = useState("");
@@ -25,14 +28,17 @@ export function ResetPasswordForm() {
   }
 
   if (submitted) {
-    return <p>If an account exists for that email, a reset link has been sent.</p>;
+    return (
+      <p className="text-sm text-muted">
+        If an account exists for that email, a reset link has been sent.
+      </p>
+    );
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div>
-        <label htmlFor="email">Email</label>
-        <input
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <Field label="Email" htmlFor="email">
+        <Input
           id="email"
           name="email"
           type="email"
@@ -41,10 +47,10 @@ export function ResetPasswordForm() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
-      </div>
-      <button type="submit" disabled={isSubmitting}>
+      </Field>
+      <Button type="submit" disabled={isSubmitting}>
         {isSubmitting ? "Sending..." : "Send reset link"}
-      </button>
+      </Button>
     </form>
   );
 }

@@ -5,6 +5,9 @@ import {
   createCustomVariableFormAction,
   type CreateCustomVariableFormState,
 } from "@/modules/custom-variables/actions";
+import { Field } from "@/components/Field";
+import { Input, Select } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function CreateCustomVariableForm({ orgSlug }: { orgSlug: string }) {
   const boundAction = createCustomVariableFormAction.bind(null, orgSlug);
@@ -14,18 +17,21 @@ export function CreateCustomVariableForm({ orgSlug }: { orgSlug: string }) {
   >(boundAction, {});
 
   return (
-    <form action={formAction}>
-      <label>
-        Name
-        <input type="text" name="name" required />
-      </label>
-      <label>
-        Internal key
-        <input type="text" name="internalKey" required pattern="[a-z0-9_]+" />
-      </label>
-      <label>
-        Field type
-        <select name="fieldType" defaultValue="text">
+    <form action={formAction} className="flex max-w-sm flex-col gap-3">
+      <Field label="Name" htmlFor="name">
+        <Input id="name" type="text" name="name" required />
+      </Field>
+      <Field label="Internal key" htmlFor="internalKey">
+        <Input
+          id="internalKey"
+          type="text"
+          name="internalKey"
+          required
+          pattern="[a-z0-9_]+"
+        />
+      </Field>
+      <Field label="Field type" htmlFor="fieldType">
+        <Select id="fieldType" name="fieldType" defaultValue="text">
           <option value="text">Text</option>
           <option value="long_text">Long text</option>
           <option value="number">Number</option>
@@ -38,12 +44,12 @@ export function CreateCustomVariableForm({ orgSlug }: { orgSlug: string }) {
           <option value="email">Email</option>
           <option value="phone">Phone</option>
           <option value="url">URL</option>
-        </select>
-      </label>
-      <button type="submit" disabled={pending}>
+        </Select>
+      </Field>
+      <Button type="submit" disabled={pending} className="self-start">
         Create custom variable
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+      </Button>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
     </form>
   );
 }

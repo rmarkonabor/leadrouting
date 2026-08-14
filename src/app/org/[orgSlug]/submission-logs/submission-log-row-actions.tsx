@@ -5,6 +5,7 @@ import {
   resubmitSubmissionLogAction,
 } from "@/modules/submission-logs/actions";
 import type { SubmissionLogStatus } from "@/lib/supabase/database.types";
+import { Button } from "@/components/Button";
 
 export function SubmissionLogRowActions({
   orgSlug,
@@ -22,13 +23,17 @@ export function SubmissionLogRowActions({
   }
 
   return (
-    <>
+    <div className="flex gap-2">
       <form action={resubmitSubmissionLogAction.bind(null, orgSlug, submissionLogId)}>
-        <button type="submit">Resubmit</button>
+        <Button type="submit" variant="secondary">
+          Resubmit
+        </Button>
       </form>
       <form action={ignoreSubmissionLogAction.bind(null, orgSlug, submissionLogId)}>
-        <button type="submit">Ignore</button>
+        <Button type="submit" variant="danger">
+          Ignore
+        </Button>
       </form>
-    </>
+    </div>
   );
 }

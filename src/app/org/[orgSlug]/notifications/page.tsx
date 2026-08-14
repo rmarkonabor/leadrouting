@@ -1,6 +1,7 @@
 import { listNotifications } from "@/modules/notifications/notifications";
 import { NotificationItem } from "./notification-item";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
 
 export default async function NotificationsPage({
   params,
@@ -16,17 +17,17 @@ export default async function NotificationsPage({
 
   if (loadError || !notifications) {
     return (
-      <main>
-        <h1>Notifications</h1>
-        <p>{loadError}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Notifications</PageTitle>
+        <p className="text-sm text-danger-text">{loadError}</p>
+      </PageContainer>
     );
   }
 
   return (
-    <main>
-      <h1>Notifications</h1>
-      <ul>
+    <PageContainer>
+      <PageTitle>Notifications</PageTitle>
+      <div className="flex flex-col gap-3">
         {notifications.map((notification) => (
           <NotificationItem
             key={notification.id}
@@ -34,8 +35,10 @@ export default async function NotificationsPage({
             notification={notification}
           />
         ))}
-        {notifications.length === 0 ? <li>No notifications.</li> : null}
-      </ul>
-    </main>
+        {notifications.length === 0 ? (
+          <p className="text-sm text-muted">No notifications.</p>
+        ) : null}
+      </div>
+    </PageContainer>
   );
 }

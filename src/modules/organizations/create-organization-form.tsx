@@ -5,6 +5,9 @@ import {
   createOrganizationFormAction,
   type CreateOrganizationFormState,
 } from "./actions";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 const initialState: CreateOrganizationFormState = {};
 
@@ -15,14 +18,12 @@ export function CreateOrganizationForm() {
   );
 
   return (
-    <form action={formAction}>
-      <div>
-        <label htmlFor="org-name">Organization name</label>
-        <input id="org-name" name="name" type="text" required maxLength={200} />
-      </div>
-      <div>
-        <label htmlFor="org-slug">Slug</label>
-        <input
+    <form action={formAction} className="flex max-w-sm flex-col gap-3">
+      <Field label="Organization name" htmlFor="org-name">
+        <Input id="org-name" name="name" type="text" required maxLength={200} />
+      </Field>
+      <Field label="Slug" htmlFor="org-slug">
+        <Input
           id="org-slug"
           name="slug"
           type="text"
@@ -30,11 +31,11 @@ export function CreateOrganizationForm() {
           pattern="[a-z0-9]+(-[a-z0-9]+)*"
           placeholder="acme-co"
         />
-      </div>
-      {state.error ? <p role="alert">{state.error}</p> : null}
-      <button type="submit" disabled={isPending}>
+      </Field>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
+      <Button type="submit" disabled={isPending} className="self-start">
         {isPending ? "Creating..." : "Create organization"}
-      </button>
+      </Button>
     </form>
   );
 }

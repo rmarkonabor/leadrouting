@@ -1,6 +1,19 @@
 import Link from "next/link";
 import { listLeads, type ListLeadsFilters } from "@/modules/leads/list-leads";
 import { toAppError } from "@/lib/errors/app-error";
+import { PageContainer, PageTitle } from "@/components/PageContainer";
+import { Field } from "@/components/Field";
+import { Input, Select } from "@/components/Input";
+import { Button } from "@/components/Button";
+import { StatusBadge } from "@/components/Badge";
+import {
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableHeaderCell,
+  TableCell,
+} from "@/components/Table";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -64,159 +77,211 @@ export default async function LeadListPage({
 
   if (loadError || !result) {
     return (
-      <main>
-        <h1>Leads</h1>
-        <p role="alert">{loadError ?? "Something went wrong loading leads."}</p>
-      </main>
+      <PageContainer>
+        <PageTitle>Leads</PageTitle>
+        <p role="alert" className="text-sm text-danger-text">
+          {loadError ?? "Something went wrong loading leads."}
+        </p>
+      </PageContainer>
     );
   }
 
   const totalPages = Math.max(1, Math.ceil(result.total / result.pageSize));
 
   return (
-    <main>
-      <h1>Leads</h1>
+    <PageContainer>
+      <div className="flex items-center justify-between">
+        <PageTitle>Leads</PageTitle>
+        <Link href={`/org/${orgSlug}/leads/new`}>
+          <Button type="button">New lead</Button>
+        </Link>
+      </div>
 
-      <p>
-        <Link href={`/org/${orgSlug}/leads/new`}>New lead</Link>
-      </p>
-
-      <form method="get">
-        <label>
-          Search
-          <input type="text" name="search" defaultValue={filters.search ?? ""} />
-        </label>
-        <label>
-          From
-          <input type="date" name="dateFrom" defaultValue={filters.dateFrom ?? ""} />
-        </label>
-        <label>
-          To
-          <input type="date" name="dateTo" defaultValue={filters.dateTo ?? ""} />
-        </label>
-        <label>
-          Lead status
-          <input type="text" name="leadStatus" defaultValue={filters.leadStatus ?? ""} />
-        </label>
-        <label>
-          Assignment status
-          <input
-            type="text"
-            name="assignmentStatus"
-            defaultValue={filters.assignmentStatus ?? ""}
-          />
-        </label>
-        <label>
-          City
-          <input type="text" name="city" defaultValue={filters.city ?? ""} />
-        </label>
-        <label>
-          State / province
-          <input
-            type="text"
-            name="stateProvince"
-            defaultValue={filters.stateProvince ?? ""}
-          />
-        </label>
-        <label>
-          Postal code
-          <input type="text" name="postalCode" defaultValue={filters.postalCode ?? ""} />
-        </label>
-        <label>
-          Manual review status
-          <select
-            name="manualReviewStatus"
-            defaultValue={filters.manualReviewStatus ?? ""}
-          >
-            <option value="">Any</option>
-            <option value="open">Open</option>
-            <option value="resolved">Resolved</option>
-            <option value="dismissed">Dismissed</option>
-          </select>
-        </label>
-        <label>
-          Duplicate status
-          <select name="duplicateStatus" defaultValue={filters.duplicateStatus ?? ""}>
-            <option value="">Any</option>
-            <option value="none">None</option>
-            <option value="duplicate">Duplicate</option>
-            <option value="possible_duplicate">Possible duplicate</option>
-          </select>
-        </label>
-        <label>
-          Team ID
-          <input type="text" name="teamId" defaultValue={filters.teamId ?? ""} />
-        </label>
-        <label>
-          User ID
-          <input type="text" name="userId" defaultValue={filters.userId ?? ""} />
-        </label>
-        <label>
-          Lead source ID
-          <input
-            type="text"
-            name="leadSourceId"
-            defaultValue={filters.leadSourceId ?? ""}
-          />
-        </label>
-        <label>
-          Custom variable key
-          <input
-            type="text"
-            name="customVariableKey"
-            defaultValue={filters.customVariableKey ?? ""}
-          />
-        </label>
-        <label>
-          Custom variable value
-          <input
-            type="text"
-            name="customVariableValue"
-            defaultValue={filters.customVariableValue ?? ""}
-          />
-        </label>
-        <button type="submit">Apply filters</button>
-        <Link href={`/org/${orgSlug}/leads`}>Clear filters</Link>
-      </form>
+      <details className="rounded-md border border-border">
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+          Filters
+        </summary>
+        <form method="get" className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-3">
+          <Field label="Search" htmlFor="search">
+            <Input
+              id="search"
+              type="text"
+              name="search"
+              defaultValue={filters.search ?? ""}
+            />
+          </Field>
+          <Field label="From" htmlFor="dateFrom">
+            <Input
+              id="dateFrom"
+              type="date"
+              name="dateFrom"
+              defaultValue={filters.dateFrom ?? ""}
+            />
+          </Field>
+          <Field label="To" htmlFor="dateTo">
+            <Input
+              id="dateTo"
+              type="date"
+              name="dateTo"
+              defaultValue={filters.dateTo ?? ""}
+            />
+          </Field>
+          <Field label="Lead status" htmlFor="leadStatus">
+            <Input
+              id="leadStatus"
+              type="text"
+              name="leadStatus"
+              defaultValue={filters.leadStatus ?? ""}
+            />
+          </Field>
+          <Field label="Assignment status" htmlFor="assignmentStatus">
+            <Input
+              id="assignmentStatus"
+              type="text"
+              name="assignmentStatus"
+              defaultValue={filters.assignmentStatus ?? ""}
+            />
+          </Field>
+          <Field label="City" htmlFor="city">
+            <Input id="city" type="text" name="city" defaultValue={filters.city ?? ""} />
+          </Field>
+          <Field label="State / province" htmlFor="stateProvince">
+            <Input
+              id="stateProvince"
+              type="text"
+              name="stateProvince"
+              defaultValue={filters.stateProvince ?? ""}
+            />
+          </Field>
+          <Field label="Postal code" htmlFor="postalCode">
+            <Input
+              id="postalCode"
+              type="text"
+              name="postalCode"
+              defaultValue={filters.postalCode ?? ""}
+            />
+          </Field>
+          <Field label="Manual review status" htmlFor="manualReviewStatus">
+            <Select
+              id="manualReviewStatus"
+              name="manualReviewStatus"
+              defaultValue={filters.manualReviewStatus ?? ""}
+            >
+              <option value="">Any</option>
+              <option value="open">Open</option>
+              <option value="resolved">Resolved</option>
+              <option value="dismissed">Dismissed</option>
+            </Select>
+          </Field>
+          <Field label="Duplicate status" htmlFor="duplicateStatus">
+            <Select
+              id="duplicateStatus"
+              name="duplicateStatus"
+              defaultValue={filters.duplicateStatus ?? ""}
+            >
+              <option value="">Any</option>
+              <option value="none">None</option>
+              <option value="duplicate">Duplicate</option>
+              <option value="possible_duplicate">Possible duplicate</option>
+            </Select>
+          </Field>
+          <Field label="Team ID" htmlFor="teamId">
+            <Input
+              id="teamId"
+              type="text"
+              name="teamId"
+              defaultValue={filters.teamId ?? ""}
+            />
+          </Field>
+          <Field label="User ID" htmlFor="userId">
+            <Input
+              id="userId"
+              type="text"
+              name="userId"
+              defaultValue={filters.userId ?? ""}
+            />
+          </Field>
+          <Field label="Lead source ID" htmlFor="leadSourceId">
+            <Input
+              id="leadSourceId"
+              type="text"
+              name="leadSourceId"
+              defaultValue={filters.leadSourceId ?? ""}
+            />
+          </Field>
+          <Field label="Custom variable key" htmlFor="customVariableKey">
+            <Input
+              id="customVariableKey"
+              type="text"
+              name="customVariableKey"
+              defaultValue={filters.customVariableKey ?? ""}
+            />
+          </Field>
+          <Field label="Custom variable value" htmlFor="customVariableValue">
+            <Input
+              id="customVariableValue"
+              type="text"
+              name="customVariableValue"
+              defaultValue={filters.customVariableValue ?? ""}
+            />
+          </Field>
+          <div className="flex items-end gap-2 sm:col-span-3">
+            <Button type="submit">Apply filters</Button>
+            <Link
+              href={`/org/${orgSlug}/leads`}
+              className="text-sm text-brand-600 hover:underline"
+            >
+              Clear filters
+            </Link>
+          </div>
+        </form>
+      </details>
 
       {result.leads.length === 0 ? (
-        <p>No leads match these filters.</p>
+        <p className="text-sm text-muted">No leads match these filters.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>City</th>
-              <th>Lead status</th>
-              <th>Assignment status</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>Name</TableHeaderCell>
+              <TableHeaderCell>Email</TableHeaderCell>
+              <TableHeaderCell>Phone</TableHeaderCell>
+              <TableHeaderCell>City</TableHeaderCell>
+              <TableHeaderCell>Lead status</TableHeaderCell>
+              <TableHeaderCell>Assignment status</TableHeaderCell>
+              <TableHeaderCell>Created</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {result.leads.map((lead) => (
-              <tr key={String(lead.id)}>
-                <td>
-                  <Link href={`/org/${orgSlug}/leads/${lead.id}`}>
+              <TableRow key={String(lead.id)}>
+                <TableCell>
+                  <Link
+                    href={`/org/${orgSlug}/leads/${lead.id}`}
+                    className="font-medium text-brand-600 hover:underline"
+                  >
                     {[lead.first_name, lead.last_name].filter(Boolean).join(" ") ||
                       String(lead.full_name ?? "Unnamed lead")}
                   </Link>
-                </td>
-                <td>{String(lead.email ?? "")}</td>
-                <td>{String(lead.phone ?? "")}</td>
-                <td>{String(lead.city ?? "")}</td>
-                <td>{String(lead.lead_status ?? "")}</td>
-                <td>{String(lead.assignment_status ?? "")}</td>
-                <td>{String(lead.created_at ?? "")}</td>
-              </tr>
+                </TableCell>
+                <TableCell>{String(lead.email ?? "")}</TableCell>
+                <TableCell>{String(lead.phone ?? "")}</TableCell>
+                <TableCell>{String(lead.city ?? "")}</TableCell>
+                <TableCell>
+                  <StatusBadge status={lead.lead_status as string | null} />
+                </TableCell>
+                <TableCell>
+                  <StatusBadge status={lead.assignment_status as string | null} />
+                </TableCell>
+                <TableCell>{String(lead.created_at ?? "")}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
 
-      <nav aria-label="Pagination">
-        <span>
+      <nav aria-label="Pagination" className="flex items-center gap-3 text-sm">
+        <span className="text-muted">
           Page {result.page} of {totalPages} ({result.total} total)
         </span>
         {result.page > 1 ? (
@@ -224,6 +289,7 @@ export default async function LeadListPage({
             href={`/org/${orgSlug}/leads?${buildQuery(resolvedSearchParams, {
               page: String(result.page - 1),
             })}`}
+            className="text-brand-600 hover:underline"
           >
             Previous
           </Link>
@@ -233,11 +299,12 @@ export default async function LeadListPage({
             href={`/org/${orgSlug}/leads?${buildQuery(resolvedSearchParams, {
               page: String(result.page + 1),
             })}`}
+            className="text-brand-600 hover:underline"
           >
             Next
           </Link>
         ) : null}
       </nav>
-    </main>
+    </PageContainer>
   );
 }

@@ -1511,3 +1511,31 @@ the created lead.
 **Status**: adopted. See
 `supabase/migrations/20260813120000_manual_lead_entry_routes_immediately.sql`
 and `tests/integration/manual-lead-entry.test.ts`.
+
+## ADR-062: Lead source create form narrowed to Webhook + External form embed; full intake URL + test tool surfaced
+
+**Context**: spec §17 defines a 6-value `lead_source_type` enum (`api`,
+`webhook`, `external_form`, `manual`, `csv`, `crm`), mirrored exactly by the
+Postgres enum, and the create-source form exposed all six. In practice the
+product only wants org admins creating **Webhook** and **External form
+embed** sources going forward, and the existing UI never showed a usable
+webhook URL — only the bare token — nor offered the "test submission tool"
+spec §17 item 5 explicitly requires (the intake route already supports
+`X-Test-Mode: true`, but nothing in the UI triggered it).
+**Decision**: this is a UI-only narrowing, not a spec change — the DB enum,
+`createLeadSourceInputSchema`, and every code path for `api`/`manual`/`csv`/
+`crm` sources are untouched, so any existing or programmatically created
+source of those types keeps working identically. Only the `<select>` in
+`create-lead-source-form.tsx` was reduced to the two options. Added
+`IntakeUrlReveal` (`src/components/IntakeUrl.tsx`) to show the full
+`{NEXT_PUBLIC_APP_URL}/api/v1/intake/{token}` URL (not just the token)
+wherever a plaintext token is revealed, wired the previously-unused
+`rotateLeadSourceTokenFormAction` into a "Regenerate URL" button on the
+detail page (rotation is the only way to see a fresh URL, since the
+plaintext token is never persisted), and added a client-side "Test this
+source" tool that POSTs a sample payload straight to the public intake
+endpoint with `X-Test-Mode: true` and renders the live HTTP response —
+satisfying spec §17 item 5 without any new server action or API route,
+since the intake endpoint is already public and anonymous by design
+(ADR-011).
+**Status**: adopted. See `src/app/org/[orgSlug]/lead-sources/`.

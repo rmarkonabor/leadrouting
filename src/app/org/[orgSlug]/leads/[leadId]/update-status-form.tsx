@@ -5,6 +5,8 @@ import {
   updateLeadStatusFormAction,
   type UpdateLeadStatusFormState,
 } from "@/modules/leads/actions";
+import { Select } from "@/components/Input";
+import { Button } from "@/components/Button";
 
 export function UpdateStatusForm({
   orgSlug,
@@ -24,21 +26,18 @@ export function UpdateStatusForm({
   >(boundAction, {});
 
   return (
-    <form action={formAction}>
-      <label>
-        Lead status
-        <select name="status" defaultValue={currentStatus ?? ""}>
-          {statusOptions.map((option) => (
-            <option key={option.key} value={option.key}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button type="submit" disabled={pending}>
+    <form action={formAction} className="flex items-end gap-2">
+      <Select name="status" defaultValue={currentStatus ?? ""} className="max-w-xs">
+        {statusOptions.map((option) => (
+          <option key={option.key} value={option.key}>
+            {option.label}
+          </option>
+        ))}
+      </Select>
+      <Button type="submit" variant="secondary" disabled={pending}>
         Update status
-      </button>
-      {state.error ? <p role="alert">{state.error}</p> : null}
+      </Button>
+      {state.error ? <p className="text-sm text-danger-text">{state.error}</p> : null}
     </form>
   );
 }
