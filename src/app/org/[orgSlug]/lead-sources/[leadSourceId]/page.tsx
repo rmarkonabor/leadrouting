@@ -1,6 +1,8 @@
 import { getLeadSource } from "@/modules/lead-sources/lead-sources";
 import { listFieldMappings } from "@/modules/field-mapping/field-mappings";
 import { FieldMappingForm } from "./field-mapping-form";
+import { RotateTokenForm } from "./rotate-token-form";
+import { TestRequestForm } from "./test-request-form";
 import { toAppError } from "@/lib/errors/app-error";
 import { PageContainer, PageTitle } from "@/components/PageContainer";
 import { Section, Card } from "@/components/Card";
@@ -37,6 +39,14 @@ export default async function LeadSourceDetailPage({
         <span className="text-muted">{result.leadSource.source_type}</span>
         <StatusBadge status={result.leadSource.status} />
       </div>
+
+      <Section title="Webhook URL">
+        <RotateTokenForm orgSlug={orgSlug} leadSourceId={leadSourceId} />
+      </Section>
+
+      <Section title="Test this source">
+        <TestRequestForm />
+      </Section>
 
       <Section title="Field mappings">
         <div className="flex flex-col gap-2">
