@@ -1,0 +1,16 @@
+# Rafter suppressions. Each entry requires a reason — see CLAUDE.md rule
+# discipline: never suppress a finding without tracing input -> sink first.
+
+ignore:
+  - rule: R-D6F0B
+    path: supabase/config.toml
+    lines: [293, 325]
+    reason: >
+      False positive. These are supabase init's own boilerplate comment
+      lines ("DO NOT commit your ... to git") warning about the exact
+      pattern already used one line below (auth_token/secret set via
+      Supabase's env(VAR_NAME) substitution, never a literal). No secret
+      value is present; both providers are enabled = false. Verified via
+      full git history that no literal credential was ever committed to
+      this file. The rule appears to pattern-match on the warning phrase
+      itself rather than on committed secret material.
